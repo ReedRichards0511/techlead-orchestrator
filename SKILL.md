@@ -56,7 +56,7 @@ Sigue los pasos en orden. Lee cada referencia solo cuando el paso la nombre.
    - Repo sin git, o merge/rebase en curso: se niega. Arregla eso primero.
    - Cambios ajenos en el árbol: los lista. Muéstraselos a Reed y relanza con `--accept-dirty` solo si confirma.
    - Toma el lock, guarda el snapshot y corre el **baseline** de validación (qué fallaba antes de tocar nada).
-   - `devServers` en la salida: hay un dev server escuchando. Si la validación incluye un build (`buildRisk`), puede pisar lo que ese server sirve (en Next.js, `.next`). Avísale a Reed antes de lanzar y repite los `restoreSteps` en el resumen final.
+   - `devServers` en la salida: hay un dev server escuchando. Si la validación incluye un build (`buildRisk`), puede pisar lo que ese server sirve (en Next.js, `.next`). Avísale a Reed antes de lanzar y repite los `restoreSteps` en el resumen final. El postflight también avisa (`devServer` y `notes`) si, ya hecha la corrida, cambió la salida de build con un dev server escuchando; no borres `.next` ni reinicies nada sin que Reed lo apruebe.
 10. **Lanzar.** `orch run --plan <ruta> --class <C>` (el router elige) o con `--model <id> --effort <e>` para forzar. Devuelve el `runId` enseguida; el worker corre en background.
 11. **Esperar.** Con `Monitor`, vigila `.orchestrator/runs/<runId>/status.json`. Sin él, `orch wait <runId> --timeout 100 --json` en bucle mientras devuelva `"waiting": true`. Nunca dejes una llamada Bash bloqueada más allá del timeout de la herramienta.
 12. **Postflight.** `orch postflight <runId> --json`: checks deterministas y re-validación frente al baseline.

@@ -1,4 +1,6 @@
+import { existsSync, readdirSync, statSync } from 'node:fs';
 import net from 'node:net';
+import { join } from 'node:path';
 
 export const DEFAULT_DEV_PORTS = [3000, 3001, 4200, 5173, 8080, 8081, 19000, 19006];
 const BUILD = /(^|[\s:/\\])build(\s|$)/i;
@@ -20,6 +22,39 @@ function probe(port, { host = '127.0.0.1', timeoutMs = 300 } = {}) {
 export async function detectDevServers({ ports = DEFAULT_DEV_PORTS, host, timeoutMs } = {}) {
   const results = await Promise.all(ports.map(async (p) => ((await probe(p, { host, timeoutMs })) ? p : null)));
   return results.filter((p) => p !== null).sort((a, b) => a - b);
+}
+
+const BUILD_DIRS = ['.next', '.nuxt', '.svelte-kit', '.output', '.angular', '.turbo', 'dist', 'build', 'out'];
+
+const newer = (path, sinceMs) => {
+  try {
+    return statSync(path).mtimeMs >= sinceMs;
+  } catch {
+    return false;
+  }
+};
+
+export function detectBuildArtifacts(repo, sinceMs) {
+  const found = [];
+  for (const name of BUILD_DIRS) {
+    const dir = join(repo, name);
+    if (!existsSync(dir)) continue;
+    let touched = newer(dir, sinceMs);
+    if (!touched) {
+      try {
+        touched = readdirSync(dir).some((child) => newer(join(dir, child), sinceMs));
+      } catch {
+        touched = false;
+      }
+    }
+    if (touched) found.push(name);
+  }
+  try {
+    for (const f of readdirSync(repo)) if (f.endsWith('.tsbuildinfo') && newer(join(repo, f), sinceMs)) found.push(f);
+  } catch {
+    return found;
+  }
+  return found;
 }
 
 export function buildRisk(commands = []) {

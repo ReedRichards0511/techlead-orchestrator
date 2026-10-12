@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { readJson } from './config.mjs';
 import { getStatus } from './run.mjs';
 import { postflightChecks } from './safety.mjs';
+import { DEFAULT_DEV_PORTS, detectBuildArtifacts, detectDevServers, devServerAdvice } from './devserver.mjs';
 import { compareToBaseline, parsePlanValidation, runValidation } from './validate.mjs';
 
 const ENDED = new Set(['exited', 'timeout', 'error']);
@@ -33,6 +34,27 @@ export async function runPostflight({ repo, runId, config, skipValidate = false 
     validation = { skipped: false, baseline: snapshot.baseline ?? [], current, ...compareToBaseline(snapshot.baseline ?? [], current) };
   }
 
+  const notes = [...checks.notes];
+  const since = Date.parse(snapshot.createdAt ?? '') || 0;
+  const artifacts = since ? detectBuildArtifacts(repo, since) : [];
+  let devServer = null;
+  if (artifacts.length) {
+    let pkg = null;
+    try {
+      pkg = JSON.parse(readFileSync(join(repo, 'package.json'), 'utf8'));
+    } catch {
+      pkg = null;
+    }
+    const advice = devServerAdvice({
+      openPorts: await detectDevServers({ ports: config.safety?.devServerPorts ?? DEFAULT_DEV_PORTS }),
+      commands: parsePlanValidation(planText),
+      packageJson: pkg,
+    });
+    if (advice) {
+      devServer = { ports: advice.ports, artifacts, restoreSteps: advice.restoreSteps };
+      notes.push(`A dev server is listening on ${advice.ports.map((p) => `:${p}`).join(', ')} and build output changed during the run (${artifacts.join(', ')}). If it misbehaves or serves stale output: ${advice.restoreSteps.join('; ')}. Nothing was deleted or restarted; ask Reed before doing either.`);
+    }
+  }
   const violations = [...checks.violations];
   const cls = st.classification;
   if (cls?.status !== 'SUCCESS') {
@@ -51,7 +73,8 @@ export async function runPostflight({ repo, runId, config, skipValidate = false 
     changedFiles: checks.changedFiles,
     comments: checks.comments,
     recovery: checks.recovery,
-    notes: checks.notes,
+    notes,
+    devServer,
     validation,
   };
   writeFileSync(join(st.runDir, 'postflight.json'), JSON.stringify(result, null, 2));
