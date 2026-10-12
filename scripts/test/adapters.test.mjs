@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildInvocation, parseOutput } from '../lib/adapters/index.mjs';
@@ -18,7 +19,7 @@ const catalog = buildCatalog({
   previous: null,
 });
 const entry = (id) => catalog.models.find((m) => m.id === id);
-const common = { packetPath: '/r/runs/x/packet.md', repo: '/repo', config };
+const common = { packetPath: '/r/runs/x/packet.md', repo: '/repo', config, runDir: '/r/runs/x' };
 
 test('devin invocation uses a prompt file, effort inside the slug and smart permissions', () => {
   const inv = buildInvocation({ ...common, entry: entry('devin/gpt-6-1-sol'), effort: 'medium' });
@@ -28,6 +29,7 @@ test('devin invocation uses a prompt file, effort inside the slug and smart perm
     '--model', 'gpt-6-1-sol-medium',
     '--respect-workspace-trust', 'false',
     '--permission-mode', 'smart',
+    '--export', join('/r/runs/x', 'devin-session.json'),
   ]);
   assert.equal(inv.stdinPath, null);
   assert.equal(inv.cwd, '/repo');
@@ -35,7 +37,7 @@ test('devin invocation uses a prompt file, effort inside the slug and smart perm
 
 test('devin invocation honors an explicit dangerous permission for the retry', () => {
   const inv = buildInvocation({ ...common, entry: entry('devin/swe-2'), effort: 'high', permission: 'dangerous' });
-  assert.equal(inv.args.at(-1), 'dangerous');
+  assert.equal(inv.args[inv.args.indexOf('--permission-mode') + 1], 'dangerous');
   assert.ok(inv.args.includes('swe-2-high'));
 });
 
@@ -85,6 +87,41 @@ test('devin parse detects the silent permission block', () => {
   assert.equal(p.blocked, true);
 });
 
+test('devin invocation without a run directory does not ask for an export', () => {
+  const inv = buildInvocation({ packetPath: '/p.md', repo: '/repo', config, entry: entry('devin/swe-2'), effort: 'high' });
+  assert.equal(inv.args.includes('--export'), false);
+});
+
+function sessionExport(results) {
+  const dir = mkdtempSync(join(tmpdir(), 'orch-ad-'));
+  const calls = results.map((r, i) => ({ tool_call_id: 'c' + i, function_name: 'exec', arguments: { command: r.command } }));
+  const observation = { results: results.map((r, i) => ({ source_call_id: 'c' + i, content: r.content })) };
+  writeFileSync(join(dir, 'devin-session.json'), JSON.stringify({ steps: [{ source: 'agent', tool_calls: calls, observation }] }));
+  return dir;
+}
+
+test('devin parse lists the rejected tool calls from the session export', () => {
+  const runDir = sessionExport([
+    { command: 'npm run lint', content: 'ok' },
+    { command: 'rm -f victim.txt', content: 'Tool execution was rejected by the user' },
+  ]);
+  const p = parseOutput('devin', { exitCode: 0, stdout: '', stderr: 'warning: rejected a tool call that requires confirmation.', runDir });
+  assert.equal(p.blocked, true);
+  assert.deepEqual(p.blockedCalls, [{ tool: 'exec', command: 'rm -f victim.txt' }]);
+});
+
+test('devin parse treats a rejection in the export as blocked even without the stderr warning', () => {
+  const runDir = sessionExport([{ command: 'npm test', content: 'Tool execution was rejected by the user' }]);
+  const p = parseOutput('devin', { exitCode: 0, stdout: '', stderr: '', runDir });
+  assert.equal(p.blocked, true);
+});
+
+test('devin parse without an export leaves blockedCalls empty', () => {
+  const p = parseOutput('devin', { exitCode: 0, stdout: '', stderr: 'warning: rejected a tool call that requires confirmation.', runDir: tmpdir() });
+  assert.equal(p.blocked, true);
+  assert.deepEqual(p.blockedCalls, []);
+});
+
 test('devin parse leaves normal output alone', () => {
   const p = parseOutput('devin', { exitCode: 0, stdout: 'PONG\n', stderr: '' });
   assert.equal(p.blocked, false);
@@ -102,6 +139,7 @@ test('codex parse extracts thread id, last message and usage from JSONL', () => 
   assert.equal(p.threadId, 't-123');
   assert.equal(p.lastMessage, 'PONG');
   assert.equal(p.completed, true);
+  assert.equal(p.sawEvents, true);
   assert.deepEqual(p.errors, []);
 });
 
@@ -114,6 +152,10 @@ test('codex parse collects error events and failed turns', () => {
   const p = parseOutput('codex', { exitCode: 1, stdout, stderr: '' });
   assert.equal(p.completed, false);
   assert.deepEqual(p.errors, ['You exceeded your current quota', 'usage limit reached']);
+});
+
+test('codex parse reports no events when stdout has no JSON', () => {
+  assert.equal(parseOutput('codex', { exitCode: 0, stdout: 'plain text', stderr: '' }).sawEvents, false);
 });
 
 test('codex parse ignores non-JSON lines', () => {

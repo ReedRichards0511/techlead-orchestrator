@@ -36,7 +36,7 @@ test('config.defaults.json matches plan section 12.2', () => {
   assert.equal(c.bootstrap.runsPerClass, 10);
   assert.deepEqual(c.bootstrap.classes, ['REFACTOR', 'MIGRATION', 'FEATURE']);
   assert.equal(c.permissions.devin.default, 'smart');
-  assert.equal(c.permissions.devin.retryOnBlock, 'dangerous');
+  assert.equal(c.permissions.devin.retryOnBlock, 'allowlist');
   assert.equal(c.neverUseCodexResetCredits, true);
   assert.ok(c.forbiddenCommands.includes('git commit'));
   assert.equal(c.timeouts.SMALL_FIX, 20);

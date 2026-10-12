@@ -559,7 +559,7 @@ Nunca se muestran emails, tokens, cookies, API keys ni IDs de cuenta.
     "idleMinutes": 15
   },
   "permissions": {
-    "devin": { "default": "smart", "retryOnBlock": "dangerous" },
+    "devin": { "default": "smart", "retryOnBlock": "allowlist" },
     "codex": { "bypassSandbox": true },
     "agy":   { "skipPermissions": true, "auto": true }
   },

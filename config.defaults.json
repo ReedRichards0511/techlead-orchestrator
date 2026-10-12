@@ -27,7 +27,7 @@
     "idleMinutes": 15
   },
   "permissions": {
-    "devin": { "default": "smart", "retryOnBlock": "dangerous", "allowlist": true },
+    "devin": { "default": "smart", "retryOnBlock": "allowlist", "allowlist": true },
     "codex": { "bypassSandbox": true },
     "agy": { "skipPermissions": true, "auto": true }
   },

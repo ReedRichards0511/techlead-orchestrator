@@ -74,14 +74,15 @@ Sigue los pasos en orden. Lee cada referencia solo cuando el paso la nombre.
 | SUCCESS | `postflight` | Postflight y auditoría |
 | VALIDATION_FAILURE | `audit` | Auditoría; si hay regresiones, repair con el **mismo** worker |
 | PLAN_CONTRADICTION | `stop-opus` | **Sin fallback.** Lee `result.json → planContradiction`, contrasta con el repo, corrige el plan o pregunta a Reed. Luego relanza |
-| PERMISSION_FAILURE (Devin) | `retry-dangerous` | Relanza con `--permission dangerous` (con continuation si hubo cambios). Menciónalo en el resumen. El runner ya da a Devin una allowlist con los comandos de `## Validation` del plan, así que un bloqueo suele venir de un comando que el plan no listó: añádelo al plan antes de recurrir a `dangerous`. Si el clasificador de Claude Code bloquea ese comando, mira la nota de abajo |
+| PERMISSION_FAILURE (Devin) | `retry-allowlist` | El runner leyó del export de Devin qué llamada se rechazó y el comando está en el plan y no es destructivo. Relanza con `orch run ... --allow-from <runId>` (más `--continuation` si `phase` es `DURING_WORK`): añade solo esas reglas `Exec(...)`. Nunca `dangerous` automático |
+| PERMISSION_FAILURE (Devin) | `stop-reed` | Comando destructivo, fuera del plan, de git o de config global, no inspeccionable, o segundo bloqueo tras la allowlist. No escales permisos: muéstrale a Reed `blocked` (comando y motivo) y sus opciones. Si ya escribió todos los archivos del plan, puedes hacer postflight y auditoría |
 | fallo `BEFORE_WORK` | `fallback` | Sin diff: relanza al siguiente candidato con `--exclude <id>@<effort>` |
 | fallo `DURING_WORK` | `continuation` | Hubo diff: continuation packet (abajo). No reinicies a ciegas |
 | RATE_LIMITED | `wait-retry` | Espera brevemente y reintenta una vez; después, fallback |
 | QUOTA_EXHAUSTED | `fallback` | `orch quota refresh`. Sin lectura viva (Devin, Antigravity): `orch quota exhausted <provider>`. Si la lectura viva contradice al worker (Codex al 99%), no la pises: usa `--exclude` en esta tarea y avisa a Reed de la discrepancia. Luego fallback |
 | UNKNOWN_FAILURE | `ask-reed` | Muestra el stdout/stderr relevante y pregunta |
 
-**Si el reintento `--permission dangerous` lo bloquea el clasificador de Claude Code:** el bloqueo es de Claude Code, no del runner, porque lanza un agente sin confirmaciones y solo Reed puede autorizarlo. No lo esquives ni intentes otra vía. Dile a Reed qué falló y ofrécele, en este orden:
+**`dangerous` solo lo decide Reed** (el runner nunca lo reintenta solo). Si Reed lo pide y el clasificador de Claude Code lo bloquea, el bloqueo es de Claude Code porque lanza un agente sin confirmaciones. No lo esquives ni intentes otra vía. Dile a Reed qué falló y ofrécele, en este orden:
 1. Aprobar ese comando en el prompt de permisos, o ejecutarlo él mismo en su terminal (dale el comando exacto).
 2. Una regla `allow` en su `settings.json` para ese caso, si quiere que no vuelva a preguntar (no la edites tú).
 3. Seguir sin reintento: si `git status` y el diff muestran que el worker ya escribió los archivos del plan, haz el postflight y la auditoría (las validaciones se vuelven a correr). Si faltan pasos del plan, no declares PASS: usa continuation con otro worker (`--exclude`) o espera la decisión de Reed.

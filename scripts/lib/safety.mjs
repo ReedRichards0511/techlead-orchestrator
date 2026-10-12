@@ -63,10 +63,14 @@ export function statusEntries(repo) {
   return entries;
 }
 
-export function ensureExcluded(repo, pattern = '.orchestrator/') {
+export function excludePath(repo) {
   const rel = gitOut(repo, ['rev-parse', '--git-path', 'info/exclude']);
-  if (!rel) return false;
-  const file = resolve(repo, rel);
+  return rel ? resolve(repo, rel) : null;
+}
+
+export function ensureExcluded(repo, pattern = '.orchestrator/') {
+  const file = excludePath(repo);
+  if (!file) return false;
   mkdirSync(dirname(file), { recursive: true });
   const current = existsSync(file) ? readFileSync(file, 'utf8') : '';
   if (current.split(/\r?\n/).some((l) => l.trim() === pattern)) return false;

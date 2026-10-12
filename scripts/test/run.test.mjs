@@ -139,11 +139,11 @@ test('a finished run with a valid result.json classifies as SUCCESS', async () =
   assert.equal(st.meta.effort, 'medium');
 });
 
-test('the Devin silent block is detected from stderr', async () => {
+test('the Devin silent block is detected from stderr and stops when it cannot be inspected', async () => {
   const { repo, run } = launch({ script: "console.error('warning: rejected a tool call that requires confirmation. Running in non-interactive mode.')" });
   const st = await waitRun({ repo, runId: run.runId, timeoutMs: 15000 });
   assert.equal(st.classification.status, 'PERMISSION_FAILURE');
-  assert.equal(st.classification.action, 'retry-dangerous');
+  assert.equal(st.classification.action, 'stop-reed');
 });
 
 test('a non-zero exit without result.json is EXECUTION_FAILURE', async () => {

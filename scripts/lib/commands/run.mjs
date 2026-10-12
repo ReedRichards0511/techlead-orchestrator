@@ -3,7 +3,7 @@ import { resolve } from 'node:path';
 import { computeDecision, loadCatalog, option } from '../decide.mjs';
 import { loadConfig } from '../config.mjs';
 import { CLASSES, formatDecision } from '../router.mjs';
-import { startRun } from '../run.mjs';
+import { allowlistRetryOf, startRun } from '../run.mjs';
 
 const HARNESS_OF_PREFIX = { devin: 'devin', codex: 'codex', agy: 'agy' };
 
@@ -11,7 +11,7 @@ export async function main(args, ctx) {
   const planArg = option(args, '--plan');
   const klass = option(args, '--class');
   if (!planArg || !klass || !CLASSES[klass]) {
-    console.error(`Usage: orch run --plan <path> --class <${Object.keys(CLASSES).join('|')}> [--model id --effort e [--harness h]] [--permission mode] [--packet file | --repair points.json | --continuation state.json] [--repo dir]`);
+    console.error(`Usage: orch run --plan <path> --class <${Object.keys(CLASSES).join('|')}> [--model id --effort e [--harness h]] [--permission mode] [--packet file | --repair points.json | --continuation state.json] [--allow-from runId] [--repo dir]`);
     if (klass && !CLASSES[klass]) console.error(`Unknown class: ${klass}`);
     return 2;
   }
@@ -73,6 +73,8 @@ export async function main(args, ctx) {
       routing = formatDecision(decision, { config, history });
     }
 
+    const allowFrom = option(args, '--allow-from');
+    const retry = allowFrom ? allowlistRetryOf({ repo, runId: allowFrom }) : null;
     const packetFile = option(args, '--packet');
     const run = startRun({
       repo,
@@ -85,6 +87,8 @@ export async function main(args, ctx) {
       packetText: packetFile ? readFileSync(resolve(packetFile), 'utf8') : undefined,
       packetKind,
       packetData,
+      allowExec: retry?.allowExec,
+      retryOf: retry?.retryOf,
       project: option(args, '--project'),
       title: option(args, '--title'),
     });

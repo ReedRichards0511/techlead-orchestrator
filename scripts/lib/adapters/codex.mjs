@@ -23,7 +23,7 @@ export function build({ entry, effort, packetPath, repo }) {
 }
 
 export function parse({ stdout = '' }) {
-  const out = { threadId: null, lastMessage: null, completed: false, errors: [], usage: null };
+  const out = { threadId: null, lastMessage: null, completed: false, errors: [], usage: null, sawEvents: false };
   for (const line of stdout.split(/\r?\n/)) {
     if (!line.trim().startsWith('{')) continue;
     let ev;
@@ -32,6 +32,7 @@ export function parse({ stdout = '' }) {
     } catch {
       continue;
     }
+    if (typeof ev.type === 'string') out.sawEvents = true;
     if (ev.type === 'thread.started') out.threadId = ev.thread_id ?? null;
     else if (ev.type === 'item.completed' && ev.item?.type === 'agent_message') out.lastMessage = ev.item.text ?? null;
     else if (ev.type === 'turn.completed') {

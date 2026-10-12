@@ -71,7 +71,7 @@ El runner valida el schema. Si falta o es inválido, cruza el exit code, el stdo
 | RATE_LIMITED | runner | 429 o patrones de rate limit | Espera corta + un reintento; luego fallback |
 | MODEL_UNAVAILABLE | runner | modelo inválido o no disponible | Sí |
 | PROVIDER_UNAVAILABLE | runner | red o auth caídas | Sí |
-| PERMISSION_FAILURE | runner | Devin: exit 0 + stdout vacío + `rejected a tool call`; agy: `denied_actions` | Devin: reintento con `dangerous`; agy: fallback |
+| PERMISSION_FAILURE | runner | Devin: exit 0 + stdout vacío + `rejected a tool call`; agy: `denied_actions` | Devin: `retry-allowlist` o `stop-reed` (nunca `dangerous` automático); agy: fallback |
 | TIMEOUT | runner | wall-clock o idle | Sí, con continuation si hubo cambios |
 | UNKNOWN_FAILURE | runner | nada de lo anterior | Pregunta a Reed |
 

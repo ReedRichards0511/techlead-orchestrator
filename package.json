@@ -5,9 +5,11 @@
   "private": true,
   "license": "MIT",
   "type": "module",
-  "engines": { "node": ">=20" },
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
-    "test": "node --test \"scripts/test/*.test.mjs\"",
+    "test": "node --test --import ./scripts/test/guard.mjs \"scripts/test/*.test.mjs\"",
     "doctor": "node scripts/orch.mjs doctor"
   }
 }

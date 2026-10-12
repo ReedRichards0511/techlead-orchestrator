@@ -67,7 +67,7 @@ La skill solo la invoca el usuario (`disable-model-invocation: true`). Abre la s
 npm test      # o: node --test "scripts/test/*.test.mjs"
 ```
 
-Los tests no lanzan workers reales ni tocan tu estado (`ORCH_STATE_DIR` lo redirige a un directorio temporal). Para añadir comportamiento se escribe primero el test (TDD con `node:test`).
+`npm test` carga una guarda (`ORCH_FORBID_REAL_WORKERS=1`) que impide lanzar devin, codex o agy. Los tests no lanzan workers reales ni tocan tu estado (`ORCH_STATE_DIR` lo redirige a un directorio temporal). Para añadir comportamiento se escribe primero el test (TDD con `node:test`).
 
 - `scripts/lib/`: módulos del runner (router, cuotas, adapters, seguridad, historial…).
 - `scripts/test/live/smoke.mjs`: humo con workers reales, **a mano** y no forma parte de `npm test`.
@@ -81,7 +81,9 @@ Los tests no lanzan workers reales ni tocan tu estado (`ORCH_STATE_DIR` lo redir
 | Cuota de Devin (capa 1) | Sin lectura viva: queda en UNKNOWN y se usa el fallback reactivo, el conteo local y el dato manual (`orch quota set devin ...`) |
 | Statusline de Claude | Script listo y probado (`references/statusline.md`) pero **no instalado**; la cuota de Claude queda UNKNOWN |
 | macOS (F11) | Sin inspeccionar ni probar |
-| E2E completo (F9) | No hecho: hay tests y humo en vivo por partes, pero falta una corrida `implement` real de punta a punta |
+| E2E (F9) | Hecho solo el caso feliz: flujo completo (preflight, route, run, wait, postflight, auditoría, history) con Devin real sobre un repo todo-app desechable, más humo real de Codex y Antigravity. Sin ejecutar: PLAN_CONTRADICTION, repair, cuota agotada antes de trabajar y continuation, en E2E reales |
+| Hardening abierto | El snapshot guarda hash y nombre de los untracked, no su contenido; una lectura viva de cuota aún puede pisar un EXHAUSTED reactivo; `history record` no deduplica una misma tarea entre reintentos; no hay distinción SOFT/HARD de scope; `postflight.ok` no exige clasificación SUCCESS; no se avisa de artifacts de build tras la validación; el máximo de 2 repairs no se aplica por código |
+| Allowlist de Devin | Verificada con `rm` y comandos de validación simples. Sin verificar con `npm.cmd`, `npx.cmd` en Windows |
 
 ## Licencia
 

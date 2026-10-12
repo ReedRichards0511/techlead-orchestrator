@@ -1,3 +1,5 @@
+import { assessBlockedCalls } from './permissions.mjs';
+
 const RESULT_STATUSES = ['SUCCESS', 'PLAN_CONTRADICTION', 'VALIDATION_FAILURE', 'EXECUTION_FAILURE'];
 const CHANGES = ['modified', 'added', 'deleted'];
 const VALIDATION_RESULTS = ['pass', 'fail', 'skipped'];
@@ -61,6 +63,39 @@ function errorText(input) {
   return parts.join('\n');
 }
 
+function permissionDenied(input) {
+  const p = input.parsed ?? {};
+  if (input.harness === 'devin') return Boolean(p.blocked);
+  if (input.harness === 'agy') return (p.deniedActions ?? []).length > 0;
+  return false;
+}
+
+function permissionFailure(input) {
+  const phase = phaseOf(input.diffEmpty);
+  if (input.harness !== 'devin') {
+    return { ...failover('PERMISSION_FAILURE', input), detail: 'Antigravity denied actions in headless mode' };
+  }
+  const a = assessBlockedCalls({
+    calls: input.parsed.blockedCalls ?? [],
+    planText: input.planText ?? '',
+    forbidden: input.forbidden ?? [],
+    repo: input.repo ?? '',
+  });
+  const retry = a.safe && !input.allowlistRetry && input.permission !== 'dangerous';
+  let why = `Devin rejected a tool call: ${a.reason}`;
+  if (retry) why = `Devin rejected tool calls that the plan names: ${a.allowExec.join(', ')}`;
+  else if (a.safe) why = 'Devin rejected tool calls again after an allowlist retry';
+  return {
+    status: 'PERMISSION_FAILURE',
+    phase,
+    fallback: false,
+    action: retry ? 'retry-allowlist' : 'stop-reed',
+    allowExec: retry ? a.allowExec : [],
+    blocked: a.calls,
+    detail: why,
+  };
+}
+
 export function classifyRun(input) {
   const { state, harness, result, resultInvalid, parsed = {} } = input;
   const detail = (d) => ({ detail: d });
@@ -68,10 +103,24 @@ export function classifyRun(input) {
   if (state === 'timeout') return { ...failover('TIMEOUT', input), ...detail('wall-clock or idle timeout') };
   if (state === 'error') return { ...failover('EXECUTION_FAILURE', input), ...detail('worker could not be spawned') };
 
+  if (result && result.status !== 'PLAN_CONTRADICTION' && permissionDenied(input) && ['SUCCESS', 'VALIDATION_FAILURE'].includes(result.status)) {
+    return permissionFailure(input);
+  }
+
   if (result) {
     switch (result.status) {
       case 'SUCCESS':
-        return { status: 'SUCCESS', phase: null, fallback: false, action: 'postflight', ...detail('result.json reports SUCCESS') };
+        if (harness === 'codex' && parsed.sawEvents && !parsed.completed) {
+          return { ...failover('EXECUTION_FAILURE', input), ...detail('codex reported SUCCESS but its run never completed') };
+        }
+        return {
+          status: 'SUCCESS',
+          phase: null,
+          fallback: false,
+          action: 'postflight',
+          ...(input.diffEmpty === true ? { noChanges: true } : {}),
+          ...detail('result.json reports SUCCESS'),
+        };
       case 'PLAN_CONTRADICTION':
         return { status: 'PLAN_CONTRADICTION', phase: null, fallback: false, action: 'stop-opus', ...detail('worker reported a plan contradiction') };
       case 'VALIDATION_FAILURE':
@@ -90,20 +139,7 @@ export function classifyRun(input) {
   if (MODEL.test(text)) return { ...failover('MODEL_UNAVAILABLE', input), ...detail('model unavailable') };
   if (PROVIDER.test(text)) return { ...failover('PROVIDER_UNAVAILABLE', input), ...detail('provider unreachable or unauthenticated') };
 
-  if (harness === 'devin' && parsed.blocked) {
-    const phase = phaseOf(input.diffEmpty);
-    const canRetry = input.permission !== 'dangerous';
-    return {
-      status: 'PERMISSION_FAILURE',
-      phase,
-      fallback: !canRetry,
-      action: canRetry ? 'retry-dangerous' : phase === 'BEFORE_WORK' ? 'fallback' : 'continuation',
-      ...detail('Devin rejected a tool call that needs confirmation'),
-    };
-  }
-  if (harness === 'agy' && (parsed.deniedActions ?? []).length) {
-    return { ...failover('PERMISSION_FAILURE', input), ...detail('Antigravity denied actions in headless mode') };
-  }
+  if (permissionDenied(input)) return permissionFailure(input);
 
   if (input.exitCode !== 0 && input.exitCode !== undefined && input.exitCode !== null) {
     return { ...failover('EXECUTION_FAILURE', input), ...detail(`exit code ${input.exitCode} and no valid result.json`) };

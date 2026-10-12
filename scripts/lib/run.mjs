@@ -12,6 +12,7 @@ import { acquireLock, readLock } from './safety.mjs';
 
 const HEARTBEAT_MS = 30000;
 const ENDED = new Set(['exited', 'timeout', 'error']);
+const REAL_WORKERS = new Set(['devin', 'codex', 'agy']);
 const PACKET_RENDERERS = { repair: renderRepairPacket, continuation: renderContinuationPacket };
 
 const runDirOf = (repo, runId) => join(repo, '.orchestrator', 'runs', runId);
@@ -44,6 +45,8 @@ export function startRun({
   resolveExe,
   timeouts = {},
   snapshot,
+  allowExec = [],
+  retryOf,
   now = new Date(),
 }) {
   if (!existsSync(planPath)) throw new Error(`Plan not found: ${planPath}`);
@@ -85,6 +88,9 @@ export function startRun({
   if (launchSnapshot) writeFileSync(join(runDir, 'snapshot.json'), JSON.stringify(launchSnapshot, null, 2));
 
   const inv = buildInvocation({ entry, effort, packetPath, repo, config, permission, runDir, resultPath });
+  if (process.env.ORCH_FORBID_REAL_WORKERS === '1' && REAL_WORKERS.has(inv.exeName)) {
+    throw new Error(`Refusing to launch the real worker ${inv.exeName}: ORCH_FORBID_REAL_WORKERS=1 (tests must use a stand-in executable)`);
+  }
   const exe = resolve(inv.exeName);
   if (!exe) throw new Error(`Executable not found: ${inv.exeName}`);
 
@@ -99,6 +105,8 @@ export function startRun({
     planId,
     planPath,
     permission: inv.permission ?? permission ?? null,
+    forbidden: config.forbiddenCommands ?? [],
+    ...(retryOf ? { allowlistRetryOf: retryOf } : {}),
     heartbeatMs: HEARTBEAT_MS,
   };
 
@@ -107,7 +115,7 @@ export function startRun({
 
   let devinAllowlist = { applied: false, reason: 'not a restricted Devin run' };
   if (entry.harness === 'devin' && meta.permission !== 'dangerous' && config.permissions?.devin?.allowlist !== false) {
-    devinAllowlist = applyDevinAllowlist({ repo, runDir, commands: parsePlanValidation(readText(planPath)) });
+    devinAllowlist = applyDevinAllowlist({ repo, runDir, commands: [...parsePlanValidation(readText(planPath)), ...allowExec] });
     appendEvent(runDir, { type: 'allowlist', applied: devinAllowlist.applied, rules: devinAllowlist.rules?.length ?? 0, reason: devinAllowlist.reason });
   }
 
@@ -126,6 +134,7 @@ export function startRun({
       watchDir: repo,
       heartbeatMs: HEARTBEAT_MS,
       meta,
+      cleanup: devinAllowlist.applied ? { kind: 'devin-allow', repo, runDir } : null,
     }));
   } catch (e) {
     restoreDevinAllowlist({ repo, runDir });
@@ -158,7 +167,7 @@ export function readResult(path) {
   if (!existsSync(path)) return { result: null, invalid: false, errors: [] };
   let obj;
   try {
-    obj = JSON.parse(readFileSync(path, 'utf8'));
+    obj = JSON.parse(readFileSync(path, 'utf8').replace(/^﻿/, ''));
   } catch (e) {
     return { result: null, invalid: true, errors: [`result.json is not valid JSON: ${e.message}`] };
   }
@@ -202,17 +211,31 @@ export function getStatus({ repo, runId, rateRetries = 0, now = new Date() }) {
     state: st.state,
     exitCode: st.exitCode ?? null,
     stderr,
-    parsed: parseOutput(harness, { exitCode: st.exitCode, stdout, stderr }),
+    parsed: parseOutput(harness, { exitCode: st.exitCode, stdout, stderr, runDir }),
     result,
     resultInvalid: invalid,
     diffEmpty,
     permission: st.meta?.permission,
+    planText: readText(st.meta?.planPath ?? ''),
+    forbidden: st.meta?.forbidden ?? [],
+    repo,
+    allowlistRetry: Boolean(st.meta?.allowlistRetryOf),
     rateRetries,
   });
   if (invalid) classification.detail = `${classification.detail}; result.json invalid: ${errors.join('; ')}`;
   out.classification = classification;
   logFinishOnce(runDir, st, classification);
   return out;
+}
+
+export function allowlistRetryOf({ repo, runId }) {
+  const st = getStatus({ repo, runId });
+  if (!st) throw new Error(`Unknown run: ${runId}`);
+  const c = st.classification;
+  if (c?.action !== 'retry-allowlist' || !c.allowExec?.length) {
+    throw new Error(`Run ${runId} does not offer an allowlist retry (${c ? `${c.status} -> ${c.action}` : 'not finished'})`);
+  }
+  return { retryOf: runId, allowExec: c.allowExec, phase: c.phase };
 }
 
 export async function waitRun({ repo, runId, timeoutMs = 100000, pollMs = 400, rateRetries = 0 }) {
