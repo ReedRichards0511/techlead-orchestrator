@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
+import { appendFileSync, copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { basename, dirname, extname, join, resolve } from 'node:path';
 import { isAlive } from './proc.mjs';
@@ -17,6 +17,9 @@ const MANIFEST_NAMES = new Set([
 ]);
 
 const MAX_HASH_BYTES = 5 * 1024 * 1024;
+const MAX_UNTRACKED_TOTAL_BYTES = 50 * 1024 * 1024;
+
+const untrackedDir = (repo, planId) => join(repo, '.orchestrator', 'snapshots', planId, 'untracked');
 
 function git(repo, args) {
   const r = spawnSync('git', args, { cwd: repo, encoding: 'utf8', shell: false, windowsHide: true, maxBuffer: 256 * 1024 * 1024 });
@@ -148,6 +151,33 @@ function manifestHashes(repo) {
   return out;
 }
 
+function saveUntracked(repo, planId, paths) {
+  const root = untrackedDir(repo, planId);
+  if (paths.length) ensureExcluded(repo);
+  rmSync(join(root, '..'), { recursive: true, force: true });
+  const saved = [];
+  const skipped = [];
+  let total = 0;
+  for (const path of paths) {
+    const from = join(repo, path);
+    try {
+      const size = statSync(from).size;
+      if (size > MAX_HASH_BYTES || total + size > MAX_UNTRACKED_TOTAL_BYTES) {
+        skipped.push(path);
+        continue;
+      }
+      const to = join(root, path);
+      mkdirSync(dirname(to), { recursive: true });
+      copyFileSync(from, to);
+      total += size;
+      saved.push(path);
+    } catch {
+      skipped.push(path);
+    }
+  }
+  return { saved, skipped };
+}
+
 export function takeSnapshot({ repo, planId, now = new Date() }) {
   const entries = statusEntries(repo);
   const tracked = entries.filter((e) => !(e.x === '?' && e.y === '?'));
@@ -155,6 +185,8 @@ export function takeSnapshot({ repo, planId, now = new Date() }) {
   const dirtyHashes = {};
   for (const e of entries) dirtyHashes[e.path] = hashFile(repo, e.path);
   const stashList = gitOut(repo, ['stash', 'list', '--format=%H']);
+  const untrackedPaths = entries.filter((e) => e.x === '?' && e.y === '?').map((e) => e.path).sort();
+  const untrackedCopy = saveUntracked(repo, planId, untrackedPaths);
   return {
     planId,
     createdAt: now.toISOString(),
@@ -164,7 +196,9 @@ export function takeSnapshot({ repo, planId, now = new Date() }) {
     stashList: stashList ? stashList.split(/\r?\n/).filter(Boolean) : [],
     porcelain: entries.map((e) => `${e.x}${e.y} ${e.path}`).sort().join('\n'),
     dirtyFiles: tracked.map((e) => e.path).sort(),
-    untracked: entries.filter((e) => e.x === '?' && e.y === '?').map((e) => e.path).sort(),
+    untracked: untrackedPaths,
+    untrackedSaved: untrackedCopy.saved,
+    untrackedSkipped: untrackedCopy.skipped,
     dirtyHashes,
     manifests: manifestHashes(repo),
     baseline: [],
@@ -332,12 +366,21 @@ export function postflightChecks({ repo, snapshot, planText, config }) {
     if (f.status === 'deleted') {
       if (!inScope) {
         add('DELETED_OUT_OF_PLAN', 'grave', `Deleted a file that is not in the plan: ${f.path}`, f.path);
-        recovery.push(`git checkout ${base} -- "${f.path}"`);
+        if (!(snapshot.untracked ?? []).includes(f.path)) recovery.push(`git checkout ${base} -- "${f.path}"`);
       }
     } else if (scope.inScope.length && !inScope) {
       add('OUT_OF_SCOPE', 'flag', `Changed a file outside the plan scope: ${f.path}`, f.path);
     }
   }
+
+  const saved = new Set(snapshot.untrackedSaved ?? []);
+  for (const f of changedFiles) {
+    if (!saved.has(f.path)) continue;
+    const copy = join(untrackedDir(repo, snapshot.planId), f.path);
+    recovery.push(process.platform === 'win32' ? `Copy-Item -LiteralPath "${copy}" -Destination "${join(repo, f.path)}" -Force` : `cp "${copy}" "${join(repo, f.path)}"`);
+    add('UNTRACKED_CHANGED', 'flag', `A file that existed untracked before the run was ${f.status === 'deleted' ? 'deleted' : 'modified'}: ${f.path} (original saved in the snapshot)`, f.path);
+  }
+  if ((snapshot.untrackedSkipped ?? []).length) notes.push(`Untracked files too large to copy into the snapshot: ${snapshot.untrackedSkipped.join(', ')}`);
 
   const manifestsNow = manifestHashes(repo);
   const paths = new Set([...Object.keys(snapshot.manifests ?? {}), ...Object.keys(manifestsNow)]);

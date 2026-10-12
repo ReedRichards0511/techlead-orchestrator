@@ -33,12 +33,21 @@ export async function runPostflight({ repo, runId, config, skipValidate = false 
     validation = { skipped: false, baseline: snapshot.baseline ?? [], current, ...compareToBaseline(snapshot.baseline ?? [], current) };
   }
 
+  const violations = [...checks.violations];
+  const cls = st.classification;
+  if (cls?.status !== 'SUCCESS') {
+    violations.push({ code: 'RUN_NOT_SUCCESS', severity: 'violation', detail: `The run was classified ${cls?.status ?? 'unknown'} (${cls?.action ?? 'no action'}), not SUCCESS` });
+  } else if (cls.noChanges || checks.changedFiles.length === 0) {
+    violations.push({ code: 'EMPTY_SUCCESS', severity: 'violation', detail: 'The worker reported SUCCESS but the working tree has no changes since the snapshot' });
+  }
+  const blocking = violations.some((v) => v.severity === 'grave' || v.severity === 'violation');
+
   const result = {
     runId,
     planId,
-    ok: checks.ok && validation.regressions.length === 0,
+    ok: !blocking && validation.regressions.length === 0,
     classification: st.classification,
-    violations: checks.violations,
+    violations,
     changedFiles: checks.changedFiles,
     comments: checks.comments,
     recovery: checks.recovery,
