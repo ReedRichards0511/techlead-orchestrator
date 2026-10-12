@@ -109,13 +109,16 @@ test('markExhausted records a reactive EXHAUSTED state that survives refresh', a
   assert.equal(all.codex.source, 'reactive');
 });
 
-test('a successful forced refresh clears a reactive exhaustion', async () => {
+test('a live reading does not clear a reactive exhaustion before it expires, even on a forced refresh', async () => {
   const dir = tmp();
   const d = deps();
   markExhausted({ stateDir: dir, provider: 'codex', now });
   const all = await getAllQuotas({ stateDir: dir, config: cfg, now: new Date(now.getTime() + 60000), deps: d.deps, refresh: true });
-  assert.equal(all.codex.source, 'official');
-  assert.notEqual(all.codex.health, 'EXHAUSTED');
+  assert.equal(all.codex.source, 'reactive');
+  assert.equal(all.codex.health, 'EXHAUSTED');
+  const later = await getAllQuotas({ stateDir: dir, config: cfg, now: new Date(now.getTime() + 3700000), deps: d.deps, refresh: true });
+  assert.equal(later.codex.source, 'official');
+  assert.notEqual(later.codex.health, 'EXHAUSTED');
 });
 
 test('the cache file never contains account identifiers', async () => {

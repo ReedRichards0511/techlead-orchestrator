@@ -79,7 +79,7 @@ Sigue los pasos en orden. Lee cada referencia solo cuando el paso la nombre.
 | fallo `BEFORE_WORK` | `fallback` | Sin diff: relanza al siguiente candidato con `--exclude <id>@<effort>` |
 | fallo `DURING_WORK` | `continuation` | Hubo diff: continuation packet (abajo). No reinicies a ciegas |
 | RATE_LIMITED | `wait-retry` | Espera brevemente y reintenta una vez; después, fallback |
-| QUOTA_EXHAUSTED | `fallback` | `orch quota refresh`. Sin lectura viva (Devin, Antigravity): `orch quota exhausted <provider>`. Si la lectura viva contradice al worker (Codex al 99%), no la pises: usa `--exclude` en esta tarea y avisa a Reed de la discrepancia. Luego fallback |
+| QUOTA_EXHAUSTED | `fallback` | `orch quota refresh`. Sin lectura viva (Devin, Antigravity): `orch quota exhausted <provider>`. Si la lectura viva contradice al worker (Codex al 99%), el runner mantiene el EXHAUSTED reactivo 1 h: avisa a Reed de la discrepancia. Luego fallback (`--exclude` sigue valiendo para excluir un candidato concreto) |
 | UNKNOWN_FAILURE | `ask-reed` | Muestra el stdout/stderr relevante y pregunta |
 
 **`dangerous` solo lo decide Reed** (el runner nunca lo reintenta solo). Si Reed lo pide y el clasificador de Claude Code lo bloquea, el bloqueo es de Claude Code porque lanza un agente sin confirmaciones. No lo esquives ni intentes otra vía. Dile a Reed qué falló y ofrécele, en este orden:

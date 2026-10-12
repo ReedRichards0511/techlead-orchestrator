@@ -44,6 +44,11 @@ export async function getAllQuotas({ stateDir, config, now = new Date(), deps, r
       prior?.source === 'reactive' && (now.getTime() - new Date(prior.retrievedAt).getTime()) / 1000 > REACTIVE_TTL_SECONDS;
     const sticky = prior && STICKY_SOURCES.has(prior.source) && !reactiveExpired;
 
+    if (prior?.source === 'reactive' && !reactiveExpired) {
+      result[provider] = refreshFreshness(prior, now, ttl);
+      continue;
+    }
+
     if (!NO_CACHE.has(provider) && !refresh) {
       const hit = cacheGet(cache, provider, now, ttl);
       if (hit) {

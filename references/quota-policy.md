@@ -40,7 +40,7 @@ La salud del provider es la **peor ventana**, ajustada por reset:
 | Devin | Capa 1 (endpoint no oficial `GetUserStatus`): pendiente de implementar | Hoy rige: capa 2 reactiva (errores de cuota/rate limit), capa 3 contabilidad local, capa 4 manual (`orch quota set devin daily=80 weekly=60`). La API key de Devin, si algún día se usa, solo vive en memoria y jamás se loguea ni imprime |
 | Antigravity | Ninguna | UNKNOWN con fallback reactivo. `/usage` en headless gasta un turno y no devuelve cuota: no lo uses |
 
-Lo reactivo: `orch quota exhausted <provider>` registra un EXHAUSTED que expira a 1 h. Los datos manuales y reactivos persisten sobre un refresh si no hay lectura viva, pero **una lectura viva los reemplaza**: si Codex reporta un límite de uso y el app-server dice 99% (por ejemplo un límite por modelo o por créditos), un `quota refresh` borra el EXHAUSTED. En ese caso la protección para la tarea en curso es `--exclude <id>@<effort>`; menciónale la discrepancia a Reed.
+Lo reactivo: `orch quota exhausted <provider>` registra un EXHAUSTED que expira a 1 h. Los datos manuales y reactivos persisten sobre un refresh si no hay lectura viva, pero un EXHAUSTED reactivo **no lo pisa ninguna lectura viva** (ni `quota refresh`) hasta que expire a 1 h o lo reemplace un dato manual (`orch quota set`). Así, si Codex falla por cuota pero el app-server dice 99% (límite por modelo o por créditos), el provider sigue excluido del routing de la tarea. Menciónale la discrepancia a Reed.
 
 ## Cache y refresh
 
