@@ -64,7 +64,7 @@ export function buildRunRecord({ status, verdict, repairs = 0, postflight = null
     durationMin: round(Math.max(0, ended - started) / 60000, 1),
     planHash: meta.planPath ? createHash('sha256').update(meta.planPath).digest('hex').slice(0, 12) : null,
     problem: cls.status === 'VALIDATION_FAILURE' || final === 'REPAIR_REQUIRED',
-    scopeFlags: violations.filter((v) => v.code === 'OUT_OF_SCOPE').length,
+    scopeFlags: violations.filter((v) => (v.code === 'SOFT_SCOPE_VIOLATION' || v.code === 'OUT_OF_SCOPE')).length,
     commentFlags: postflight?.comments?.length ?? 0,
     permissionRetry: (cls.status === 'PERMISSION_FAILURE' && final !== 'FAILED') || meta.permission === 'dangerous' || Boolean(meta.allowlistRetryOf),
     date: now.toISOString().slice(0, 10),

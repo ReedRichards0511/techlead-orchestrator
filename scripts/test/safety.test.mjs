@@ -219,7 +219,7 @@ test('an in-scope edit is clean; an out-of-scope edit is flagged for audit only'
   assert.deepEqual(check(repo, s).violations, []);
   write(repo, 'b.txt', 'y2\n');
   const r = check(repo, s);
-  assert.deepEqual(codes(r), ['OUT_OF_SCOPE']);
+  assert.deepEqual(codes(r), ['SOFT_SCOPE_VIOLATION']);
   assert.equal(r.violations[0].severity, 'flag');
   assert.equal(r.ok, true);
 });
@@ -340,7 +340,7 @@ test('files that were already dirty are only counted when the worker changed the
   write(repo, 'mine.txt', 'my edit plus worker\n');
   const touched = check(repo, s);
   assert.deepEqual(touched.changedFiles.map((f) => f.path), ['mine.txt']);
-  assert.ok(codes(touched).includes('OUT_OF_SCOPE'));
+  assert.ok(codes(touched).includes('SOFT_SCOPE_VIOLATION'));
 });
 
 test('an unparsable scope is reported instead of silently passing', async () => {

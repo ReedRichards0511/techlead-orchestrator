@@ -1,7 +1,8 @@
 import { createHash } from 'node:crypto';
 import { appendFileSync, copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
-import { basename, dirname, extname, join, resolve } from 'node:path';
+import { homedir } from 'node:os';
+import { basename, dirname, extname, join, resolve, sep } from 'node:path';
 import { isAlive } from './proc.mjs';
 import { compareToBaseline, matchScope, parsePlanValidation, parseScope, runValidation } from './validate.mjs';
 
@@ -178,6 +179,23 @@ function saveUntracked(repo, planId, paths) {
   return { saved, skipped };
 }
 
+function guardedHashes(repo) {
+  const out = {};
+  const add = (name, full) => {
+    out[name] = hashFile('', full);
+  };
+  add('repo:.git/config', join(repo, '.git', 'config'));
+  const hooks = join(repo, '.git', 'hooks');
+  if (existsSync(hooks)) {
+    for (const f of readdirSync(hooks).filter((n) => !n.endsWith('.sample'))) add(`repo:.git/hooks/${f}`, join(hooks, f));
+  }
+  const home = homedir();
+  for (const rel of ['.gitconfig', '.npmrc', join('.claude', 'settings.json'), join('.claude', 'settings.local.json')]) {
+    add(`home:${rel.split(sep).join('/')}`, join(home, rel));
+  }
+  return out;
+}
+
 export function takeSnapshot({ repo, planId, now = new Date() }) {
   const entries = statusEntries(repo);
   const tracked = entries.filter((e) => !(e.x === '?' && e.y === '?'));
@@ -200,6 +218,7 @@ export function takeSnapshot({ repo, planId, now = new Date() }) {
     untrackedSaved: untrackedCopy.saved,
     untrackedSkipped: untrackedCopy.skipped,
     dirtyHashes,
+    guarded: guardedHashes(repo),
     manifests: manifestHashes(repo),
     baseline: [],
   };
@@ -369,8 +388,14 @@ export function postflightChecks({ repo, snapshot, planText, config }) {
         if (!(snapshot.untracked ?? []).includes(f.path)) recovery.push(`git checkout ${base} -- "${f.path}"`);
       }
     } else if (scope.inScope.length && !inScope) {
-      add('OUT_OF_SCOPE', 'flag', `Changed a file outside the plan scope: ${f.path}`, f.path);
+      add('SOFT_SCOPE_VIOLATION', 'flag', `Changed a file not listed in the plan scope: ${f.path}`, f.path);
     }
+  }
+
+  const guardedNow = guardedHashes(repo);
+  for (const name of Object.keys({ ...(snapshot.guarded ?? {}), ...guardedNow }).sort()) {
+    if (!snapshot.guarded || (snapshot.guarded[name] ?? null) === (guardedNow[name] ?? null)) continue;
+    add('HARD_SCOPE_VIOLATION', 'grave', `A protected file outside the task changed: ${name}. Stop and review it before anything else`, name);
   }
 
   const saved = new Set(snapshot.untrackedSaved ?? []);
