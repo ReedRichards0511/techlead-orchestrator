@@ -82,7 +82,7 @@ npm test      # o: node --test "scripts/test/*.test.mjs"
 | Statusline de Claude | Script listo y probado (`references/statusline.md`) pero **no instalado**; la cuota de Claude queda UNKNOWN |
 | macOS (F11) | Sin inspeccionar ni probar |
 | E2E (F9) | Hecho solo el caso feliz: flujo completo (preflight, route, run, wait, postflight, auditoría, history) con Devin real sobre un repo todo-app desechable, más humo real de Codex y Antigravity. Sin ejecutar: PLAN_CONTRADICTION, repair, cuota agotada antes de trabajar y continuation, en E2E reales |
-| Hardening abierto | `history record` no deduplica una misma tarea entre reintentos; no hay distinción SOFT/HARD de scope; no se avisa de artifacts de build tras la validación; el máximo de 2 repairs no se aplica por código |
+| Hardening abierto | no hay distinción SOFT/HARD de scope; no se avisa de artifacts de build tras la validación; el máximo de 2 repairs no se aplica por código |
 | Untracked y postflight | El snapshot copia el contenido de los untracked previos (hasta 5 MB por archivo y 50 MB en total) y el postflight da el comando para recuperarlos si el worker los modifica o borra; `postflight.ok` exige clasificación SUCCESS y cambios reales. Sin tests propios (decisión de Reed) |
 | Allowlist de Devin | Verificada con `rm` y comandos de validación simples. Sin verificar con `npm.cmd`, `npx.cmd` en Windows |
 

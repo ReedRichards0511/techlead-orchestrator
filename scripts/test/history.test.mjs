@@ -53,7 +53,7 @@ const rec = (over = {}) => ({
 
 test('buildRunRecord keeps only the allowed fields and no absolute paths', () => {
   const r = buildRunRecord({ status: status(), verdict: 'PASS', now: NOW });
-  assert.deepEqual(Object.keys(r).sort(), ['at', 'class', 'commentFlags', 'date', 'durationMin', 'key', 'permissionRetry', 'repairs', 'runId', 'scopeFlags', 'status', 'verdict']);
+  assert.deepEqual(Object.keys(r).sort(), ['at', 'class', 'commentFlags', 'date', 'durationMin', 'key', 'permissionRetry', 'planHash', 'problem', 'repairs', 'runId', 'scopeFlags', 'status', 'verdict']);
   assert.equal(r.key, SWE);
   assert.equal(r.class, 'FEATURE');
   assert.equal(r.durationMin, 12);
@@ -322,7 +322,7 @@ test('an audited run that ended in PERMISSION_FAILURE keeps its verdict and is m
   const r = buildRunRecord({ status: status({ cls: 'PERMISSION_FAILURE' }), verdict: 'PASS', now: NOW });
   assert.equal(r.status, 'PERMISSION_FAILURE');
   assert.equal(r.verdict, 'PASS');
-  assert.equal(r.permissionRetry, 'blocked');
+  assert.equal(r.permissionRetry, true);
   const repair = buildRunRecord({ status: status({ cls: 'PERMISSION_FAILURE' }), verdict: 'REPAIR_REQUIRED', repairs: 1, now: NOW });
   assert.equal(repair.verdict, 'REPAIR_REQUIRED');
 });
@@ -339,7 +339,7 @@ test('other failures still reject an audited verdict', () => {
 });
 
 test('an audited PERMISSION_FAILURE PASS counts as a success and does not penalize the model', () => {
-  const agg = aggregateRuns([rec({ status: 'PERMISSION_FAILURE', verdict: 'PASS', permissionRetry: 'blocked' }), rec()])['devin/swe-2/high/FEATURE'];
+  const agg = aggregateRuns([rec({ status: 'PERMISSION_FAILURE', verdict: 'PASS', permissionRetry: true }), rec()])['devin/swe-2/high/FEATURE'];
   assert.equal(agg.runs, 2);
   assert.equal(agg.success, 2);
   assert.equal(agg.problemRuns, 0);
@@ -348,7 +348,7 @@ test('an audited PERMISSION_FAILURE PASS counts as a success and does not penali
 
 test('bootstrap counts an audited PERMISSION_FAILURE but not an unaudited one', () => {
   let h = emptyHistory();
-  h = recordRun(h, rec({ runId: 'a', key: SWE, status: 'PERMISSION_FAILURE', verdict: 'PASS', permissionRetry: 'blocked' }));
+  h = recordRun(h, rec({ runId: 'a', key: SWE, status: 'PERMISSION_FAILURE', verdict: 'PASS', permissionRetry: true }));
   h = recordRun(h, rec({ runId: 'b', key: SWE, status: 'PERMISSION_FAILURE', verdict: 'FAILED' }));
   const rep = bootstrapReport(h, CONFIG, 'FEATURE');
   assert.equal(rep.perKey[SWE].runs, 1);

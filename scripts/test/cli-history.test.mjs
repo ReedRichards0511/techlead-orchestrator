@@ -184,7 +184,7 @@ test('history record accepts an audited verdict on a PERMISSION_FAILURE run', ()
   const rec = JSON.parse(r.stdout).recorded;
   assert.equal(rec.status, 'PERMISSION_FAILURE');
   assert.equal(rec.verdict, 'PASS');
-  assert.equal(rec.permissionRetry, 'blocked');
+  assert.equal(rec.permissionRetry, true);
   assert.equal(readHistory(state).aggregates['devin/swe-2/high/FEATURE'].success, 1);
 });
 

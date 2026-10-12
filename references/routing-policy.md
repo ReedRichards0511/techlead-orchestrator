@@ -88,6 +88,7 @@ Límites que el router **no** aplica solo y que debes cubrir tú con `--model`/`
 Objetivo: decidir con datos de los repos de Reed si SWE-2 High puede reemplazar a Sol Medium en REFACTOR, MIGRATION y FEATURE.
 
 - Dura 10 corridas por clase (`bootstrap.runsPerClass`), alternando Devin Sol Medium y Devin SWE-2 High; el router elige el que tenga **menos corridas** en la clase (empate: Sol).
+- Una tarea cuenta una sola vez: `history record` fusiona las corridas del mismo plan y el mismo `modelo@effort` (reintento por allowlist, repairs) en un registro, con el estado de la última, `repairs` máximo, duración sumada y `permissionRetry`. Guarda un hash del plan, nunca su ruta. Registrar dos veces el mismo runId es idempotente.
 - No cuentan las corridas que terminan en PLAN_CONTRADICTION, EXECUTION_FAILURE, QUOTA_EXHAUSTED, RATE_LIMITED, TIMEOUT, MODEL_UNAVAILABLE, PROVIDER_UNAVAILABLE o PERMISSION_FAILURE: no miden calidad del modelo.
 - Métricas al terminar: PASS sin repair, repairs promedio, flags de scope y de comentarios, VALIDATION_FAILURE y duración.
 - Si SWE-2 iguala o supera a Sol en PASS sin repair y no tiene más flags de scope, sube a 1ª opción. Si no, Sol sigue 1ª. **Avisa a Reed antes de cambiar el orden** (`bootstrap.askBeforeReorder`).

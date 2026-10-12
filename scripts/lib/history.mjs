@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 import { readJson, writeJson } from './config.mjs';
 import { countBootstrapRuns, isExternalFailure } from './router.mjs';
@@ -61,9 +62,11 @@ export function buildRunRecord({ status, verdict, repairs = 0, postflight = null
     verdict: final,
     repairs,
     durationMin: round(Math.max(0, ended - started) / 60000, 1),
+    planHash: meta.planPath ? createHash('sha256').update(meta.planPath).digest('hex').slice(0, 12) : null,
+    problem: cls.status === 'VALIDATION_FAILURE' || final === 'REPAIR_REQUIRED',
     scopeFlags: violations.filter((v) => v.code === 'OUT_OF_SCOPE').length,
     commentFlags: postflight?.comments?.length ?? 0,
-    permissionRetry: cls.status === 'PERMISSION_FAILURE' && final !== 'FAILED' ? 'blocked' : meta.permission === 'dangerous',
+    permissionRetry: (cls.status === 'PERMISSION_FAILURE' && final !== 'FAILED') || meta.permission === 'dangerous' || Boolean(meta.allowlistRetryOf),
     date: now.toISOString().slice(0, 10),
     at: now.toISOString(),
   };
@@ -83,11 +86,12 @@ export function aggregateRuns(runs) {
       runs: list.length,
       success: count((r) => r.verdict === 'PASS' && (r.status === 'SUCCESS' || r.status === 'PERMISSION_FAILURE')),
       repairRequired: count((r) => r.verdict === 'REPAIR_REQUIRED'),
-      planContradictions: count((r) => r.status === 'PLAN_CONTRADICTION'),
+      planContradictions: count((r) => r.status === 'PLAN_CONTRADICTION' || r.priorStatuses?.includes('PLAN_CONTRADICTION')),
       executionFailures: count((r) => r.status === 'EXECUTION_FAILURE'),
       validationFailures: count((r) => r.status === 'VALIDATION_FAILURE'),
       permissionRetries: count((r) => r.permissionRetry),
-      problemRuns: count((r) => r.status === 'VALIDATION_FAILURE' || r.verdict === 'REPAIR_REQUIRED'),
+      problemRuns: count((r) => r.problem ?? (r.status === 'VALIDATION_FAILURE' || r.verdict === 'REPAIR_REQUIRED')),
+      repairCount: sum(list, (r) => r.repairs ?? 0),
       avgRepairCount: round(sum(list, (r) => r.repairs ?? 0) / list.length, 2),
       avgDurationMin: round(sum(list, (r) => r.durationMin ?? 0) / list.length),
       lastRun: list.map((r) => r.date).sort().at(-1),
@@ -96,8 +100,38 @@ export function aggregateRuns(runs) {
   return out;
 }
 
+function mergeRecords(prior, record) {
+  const priorIds = prior.runIds ?? [prior.runId];
+  return {
+    ...record,
+    runIds: [...priorIds, record.runId],
+    priorStatuses: [...new Set([...(prior.priorStatuses ?? []), prior.status])],
+    repairs: Math.max(prior.repairs ?? 0, record.repairs ?? 0),
+    durationMin: round((prior.durationMin ?? 0) + (record.durationMin ?? 0), 1),
+    scopeFlags: Math.max(prior.scopeFlags ?? 0, record.scopeFlags ?? 0),
+    commentFlags: Math.max(prior.commentFlags ?? 0, record.commentFlags ?? 0),
+    permissionRetry: Boolean(prior.permissionRetry || record.permissionRetry),
+    problem: Boolean(prior.problem || record.problem),
+    date: prior.date ?? record.date,
+  };
+}
+
 export function recordRun(history, record) {
-  const runs = [...history.runs.filter((r) => r.runId !== record.runId), record];
+  const holder = history.runs.find((r) => (r.runIds ?? [r.runId]).includes(record.runId));
+  const sameTask = (r) => record.planHash && r.planHash === record.planHash && r.key === record.key;
+  let runs;
+  if (holder && holder.runId !== record.runId) return history;
+  if (holder) {
+    const ids = holder.runIds ?? [holder.runId];
+    const next =
+      ids.length > 1
+        ? { ...record, runIds: ids, priorStatuses: holder.priorStatuses, repairs: Math.max(holder.repairs ?? 0, record.repairs ?? 0), durationMin: holder.durationMin, permissionRetry: Boolean(holder.permissionRetry || record.permissionRetry), problem: Boolean(holder.problem || record.problem), date: holder.date }
+        : record;
+    runs = history.runs.map((r) => (r === holder ? next : r));
+  } else {
+    const prior = history.runs.find(sameTask);
+    runs = prior ? history.runs.map((r) => (r === prior ? mergeRecords(prior, record) : r)) : [...history.runs, record];
+  }
   return { ...history, runs, aggregates: aggregateRuns(runs) };
 }
 
