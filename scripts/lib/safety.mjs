@@ -292,6 +292,9 @@ function numstatTotal(repo, base, path, ignoreWhitespace) {
   return (Number(a) || 0) + (Number(d) || 0);
 }
 
+const ORCH_REF = /(^|[^\w.])\.orchestrator(?![\w-])/;
+const IGNORE_FILE = /(^|\/)\.[a-z]*ignore$/;
+
 export function postflightChecks({ repo, snapshot, planText, config }) {
   const violations = [];
   const recovery = [];
@@ -367,6 +370,11 @@ export function postflightChecks({ repo, snapshot, planText, config }) {
   if (comments.length) {
     const files = [...new Set(comments.map((c) => c.file))];
     add('NEW_COMMENT', 'flag', `${comments.length} added comment or marker line(s) in ${files.join(', ')}`);
+  }
+
+  const refFiles = sources.filter((f) => !IGNORE_FILE.test(f.file) && f.added.some((l) => ORCH_REF.test(l.text))).map((f) => f.file);
+  if (refFiles.length) {
+    add('ORCHESTRATOR_REFERENCE', 'violation', `Added code references .orchestrator/ (read-only for workers, absent in CI): ${refFiles.join(', ')}`, refFiles[0]);
   }
 
   const ok = !violations.some((v) => v.severity === 'grave' || v.severity === 'violation');

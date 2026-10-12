@@ -112,3 +112,15 @@ test('continuation packet states what is done, what is missing and where to cont
   assert.match(p, /Do not restart/);
   assert.match(p, /FORBIDDEN_COMMANDS/);
 });
+
+test('every packet kind tells the worker that .orchestrator is read-only and must not be referenced from code', () => {
+  const kinds = [
+    renderPacket(opts),
+    renderRepairPacket({ ...opts, cycle: 1, points: [{ file: 'a.ts', line: 1, issue: 'x', expected: 'y' }], commands: [] }),
+    renderContinuationPacket({ ...opts, done: [], missing: ['s'], changedFiles: [], testsPassed: [], testsFailed: [], resumeAt: 'paso 1' }),
+  ];
+  for (const p of kinds) {
+    assert.match(p, /RUNNER_FILES_POLICY: .*\.orchestrator.*read-only/s);
+    assert.match(p, /never (import|read|reference)/i);
+  }
+});

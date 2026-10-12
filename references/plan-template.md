@@ -24,6 +24,12 @@ Qué se hace y por qué, qué NO se hace y las alternativas descartadas.
 - In scope: src/auth/login.ts, src/auth/login.test.ts
 - Out of scope: todo lo demás, en especial package.json y lockfiles
 
+## Criterios fuera de este repo
+- <criterio> · vive en: <otro repo / servicio / contenido de un tercero> · quién lo cubre: <Reed / equipo X>
+
+## Visual reference
+- Figma: <URL del frame> · Documento fuente del texto: <ruta o nombre>
+
 ## Steps
 1. <paso atómico> · files: src/auth/login.ts · symbols: refreshToken · expected: <resultado observable>
 2. ...
@@ -57,4 +63,6 @@ Los comandos de validación se ejecutan con un shell real (`cmd.exe` en Windows)
 - **Nada de comentarios o docs inline.** Los workers no agregan comentarios; un plan que los exija genera PLAN_CONTRADICTION. Si hace falta documentación, que sea un archivo aparte y dentro del scope.
 - **Manifests y lockfiles** (`package.json`, `package-lock.json`, `pnpm-lock.yaml`, `Podfile.lock`, `build.gradle`, ...) fuera del scope salvo que la tarea sea de dependencias; si cambian sin que el plan lo pida, el postflight lo marca como violación.
 - **Criterios "Done when" verificables** por comando, no por opinión.
+- **Criterios fuera de este repo.** Si un criterio de aceptación depende de otro repo, un servicio o contenido de un tercero (por ejemplo boletines o textos que entrega otro equipo), no lo metas en "Done when" ni en los pasos: el worker no puede cumplirlo y generaría PLAN_CONTRADICTION. Va en "Criterios fuera de este repo", se avisa a Reed en el paso 2 y se lista como pendiente al cerrar. El runner no parsea esa sección; es para ti y para Reed. Si no hay ninguno, borra la sección.
+- **Referencia visual.** Para tareas de UI, "Visual reference" lleva el frame de Figma y el documento que da el texto. Habilita la verificación visual del paso 14b. Sin referencia, borra la sección.
 - Para clases MIGRATION y ARCHITECTURAL_IMPL, agrega "Risks" con qué se rompe si un paso falla a medias.

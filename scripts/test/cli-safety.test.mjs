@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -179,4 +179,57 @@ test('postflight for an unknown run fails', () => {
   const r = orchRun(['postflight', 'nope', '--repo', repo, '--json']);
   assert.notEqual(r.status, 0);
   assert.match(r.stderr, /Unknown run/);
+});
+
+test('preflight reports a running dev server and warns when the validation builds', async () => {
+  const { createServer } = await import('node:net');
+  const srv = createServer((s) => s.end());
+  await new Promise((r) => srv.listen(0, '127.0.0.1', r));
+  const port = srv.address().port;
+  try {
+    const { repo } = makeRepo();
+    const plan = join(repo, '.orchestrator', 'plans', 'p2.md');
+    writeFileSync(plan, '# Plan p2\n\n## Scope\n- In scope: a.txt\n- Out of scope: rest\n\n## Validation\n- Commands: `npm run build`\n');
+    writeFileSync(join(repo, 'package.json'), JSON.stringify({ dependencies: { next: '15.0.0' } }));
+    git(repo, 'add', '-A');
+    git(repo, 'commit', '-qm', 'pkg');
+    const r = await new Promise((resolve) => {
+      const child = spawn(process.execPath, [orch, 'preflight', '--plan', plan, '--repo', repo, '--skip-baseline', '--dev-ports', String(port), '--json'], {
+        env: { ...process.env, ORCH_STATE_DIR: state },
+        shell: false,
+      });
+      let out = '';
+      child.stdout.on('data', (c) => (out += c));
+      child.on('close', (code) => resolve({ status: code, stdout: out }));
+    });
+    assert.equal(r.status, 0, r.stdout);
+    const out = JSON.parse(r.stdout);
+    assert.deepEqual(out.devServers.ports, [port]);
+    assert.equal(out.devServers.buildRisk, true);
+    assert.ok(out.devServers.restoreSteps.some((s) => /\.next/.test(s)));
+    const text = await new Promise((resolve) => {
+      const { repo: repo2, plan: plan2 } = makeRepo();
+      writeFileSync(plan2, '# Plan p1\n\n## Scope\n- In scope: a.txt\n- Out of scope: rest\n\n## Validation\n- Commands: `npm run build`\n');
+      git(repo2, 'add', '-A');
+      git(repo2, 'commit', '-qm', 'plan');
+      const child = spawn(process.execPath, [orch, 'preflight', '--plan', plan2, '--repo', repo2, '--skip-baseline', '--dev-ports', String(port)], {
+        env: { ...process.env, ORCH_STATE_DIR: state },
+        shell: false,
+      });
+      let o = '';
+      child.stdout.on('data', (c) => (o += c));
+      child.on('close', () => resolve(o));
+    });
+    assert.match(text, /dev server/i);
+    assert.match(text, new RegExp(`:${port}`));
+  } finally {
+    srv.close();
+  }
+});
+
+test('preflight without a listening dev server reports none', () => {
+  const { repo, plan } = makeRepo();
+  const r = orchRun(['preflight', '--plan', plan, '--repo', repo, '--skip-baseline', '--dev-ports', '1', '--json']);
+  assert.equal(r.status, 0, r.stderr + r.stdout);
+  assert.equal(JSON.parse(r.stdout).devServers, null);
 });

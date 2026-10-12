@@ -21,7 +21,7 @@ function orchRun(state, args) {
   });
 }
 
-function fakeRun(repo, runId, { klass = 'FEATURE', model = 'devin/swe-2', effort = 'high', resultStatus = 'SUCCESS', extraResult = {}, permission = 'smart', postflight = null, state = 'exited' } = {}) {
+function fakeRun(repo, runId, { klass = 'FEATURE', model = 'devin/swe-2', effort = 'high', resultStatus = 'SUCCESS', extraResult = {}, blocked = false, permission = 'smart', postflight = null, state = 'exited' } = {}) {
   const dir = join(repo, '.orchestrator', 'runs', runId);
   mkdirSync(dir, { recursive: true });
   const start = new Date('2026-10-12T10:00:00Z');
@@ -38,8 +38,8 @@ function fakeRun(repo, runId, { klass = 'FEATURE', model = 'devin/swe-2', effort
     }),
   );
   writeFileSync(join(dir, 'stdout.log'), '');
-  writeFileSync(join(dir, 'stderr.log'), '');
-  writeFileSync(join(dir, 'result.json'), JSON.stringify({ status: resultStatus, summary: 's', modifiedFiles: [], planStepsCompleted: ['1'], validation: [], errors: [], ...extraResult }));
+  writeFileSync(join(dir, 'stderr.log'), blocked ? 'rejected a tool call that requires confirmation' : '');
+  if (!blocked) writeFileSync(join(dir, 'result.json'), JSON.stringify({ status: resultStatus, summary: 's', modifiedFiles: [], planStepsCompleted: ['1'], validation: [], errors: [], ...extraResult }));
   if (postflight) writeFileSync(join(dir, 'postflight.json'), JSON.stringify(postflight));
   return dir;
 }
@@ -173,4 +173,26 @@ test('bootstrap end --promote rejects a model that is not a candidate', () => {
   const r = orchRun(newState(), ['bootstrap', 'end', '--class', 'FEATURE', '--promote', 'codex/gpt-6.1-sol@medium']);
   assert.equal(r.status, 2);
   assert.match(r.stderr, /candidate/i);
+});
+
+test('history record accepts an audited verdict on a PERMISSION_FAILURE run', () => {
+  const state = newState();
+  const repo = repoDir();
+  fakeRun(repo, 'p1-a', { blocked: true });
+  const r = orchRun(state, ['history', 'record', 'p1-a', '--verdict', 'PASS', '--repo', repo, '--json']);
+  assert.equal(r.status, 0, r.stderr + r.stdout);
+  const rec = JSON.parse(r.stdout).recorded;
+  assert.equal(rec.status, 'PERMISSION_FAILURE');
+  assert.equal(rec.verdict, 'PASS');
+  assert.equal(rec.permissionRetry, 'blocked');
+  assert.equal(readHistory(state).aggregates['devin/swe-2/high/FEATURE'].success, 1);
+});
+
+test('history record of a PERMISSION_FAILURE run without verdict stores FAILED', () => {
+  const state = newState();
+  const repo = repoDir();
+  fakeRun(repo, 'p1-a', { blocked: true });
+  const r = orchRun(state, ['history', 'record', 'p1-a', '--repo', repo, '--json']);
+  assert.equal(r.status, 0, r.stderr + r.stdout);
+  assert.equal(JSON.parse(r.stdout).recorded.verdict, 'FAILED');
 });

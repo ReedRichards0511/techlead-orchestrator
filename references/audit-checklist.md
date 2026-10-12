@@ -21,6 +21,7 @@ Qué verifica el runner solo, qué debes verificar tú y qué hacer ante una vio
 | STASH_CHANGED | grave | cambió la lista de stash | ídem |
 | DELETED_OUT_OF_PLAN | grave | borró archivos que el plan no preveía | ídem |
 | MANIFEST_CHANGED | violación | cambió un manifest o lockfile sin pedirlo el plan | Revierte el cambio vía repair o pregunta a Reed |
+| ORCHESTRATOR_REFERENCE | violación | una línea añadida menciona `.orchestrator/` (código, tests, fixtures o config; se excluyen `.gitignore` y similares) | Pide repair: el contenido debe vivir en una ruta versionada dentro del scope. Pasaría en local y fallaría en CI |
 | OUT_OF_SCOPE | aviso | tocó archivos fuera de "In scope" | Decide en la auditoría: ¿necesario o scope creep? |
 | NEW_COMMENT | aviso | comentarios o TODO nuevos en líneas `+` | Revisa cada uno; puede ser un falso positivo (por ejemplo `//` dentro de un string) |
 | WHITESPACE_ONLY | aviso | reformateo masivo de espacios | Si no está en el plan, pide repair |

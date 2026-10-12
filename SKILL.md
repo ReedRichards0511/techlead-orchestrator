@@ -45,7 +45,7 @@ Sin `implement`, esta skill solo informa: no escribe planes ni lanza workers.
 Sigue los pasos en orden. Lee cada referencia solo cuando el paso la nombre.
 
 1. **Doctor rápido.** `orch doctor --json`. Si la sesión no es local (cloud/Cowork) o falta un CLI que necesitas, aborta y dilo.
-2. **Entender.** Lee el requerimiento. Si algo ambiguo cambia el diseño, pregunta a Reed antes de planificar.
+2. **Entender.** Lee el requerimiento y todo lo que Reed adjuntó (documentos, Figma, capturas): son la fuente final, no los reinterpretes ni los cuestiones. Pregunta **solo** lo que bloquea un criterio de aceptación o cambia el diseño; lo demás decídelo tú y déjalo escrito en el plan. Si un criterio vive fuera de este repo (otro repo, un servicio, contenido de un tercero), anótalo en la sección "Criterios fuera de este repo" del plan y dile a Reed desde ya que no lo cubre este run.
 3. **Reglas del proyecto.** Lee `CLAUDE.md`, `AGENTS.md`, `.claude/skills` y README del repo, solo lo relevante a la tarea. Guarda un extracto breve: es el `PROJECT_RULES` del packet.
 4. **Inspeccionar el repo.** Arquitectura, patrones y los **comandos reales de validación** (package.json, Gradle, Xcode, Makefile, CI). No supongas `npm test`: verifícalo.
 5. **Plan.** Escribe `<repo>/.orchestrator/plans/<id>.md` siguiendo `references/plan-template.md`. El runner parsea `## Scope` y `## Validation` con un formato fijo; si los escribes distinto, el postflight no podrá comparar.
@@ -56,12 +56,14 @@ Sigue los pasos en orden. Lee cada referencia solo cuando el paso la nombre.
    - Repo sin git, o merge/rebase en curso: se niega. Arregla eso primero.
    - Cambios ajenos en el árbol: los lista. Muéstraselos a Reed y relanza con `--accept-dirty` solo si confirma.
    - Toma el lock, guarda el snapshot y corre el **baseline** de validación (qué fallaba antes de tocar nada).
+   - `devServers` en la salida: hay un dev server escuchando. Si la validación incluye un build (`buildRisk`), puede pisar lo que ese server sirve (en Next.js, `.next`). Avísale a Reed antes de lanzar y repite los `restoreSteps` en el resumen final.
 10. **Lanzar.** `orch run --plan <ruta> --class <C>` (el router elige) o con `--model <id> --effort <e>` para forzar. Devuelve el `runId` enseguida; el worker corre en background.
 11. **Esperar.** Con `Monitor`, vigila `.orchestrator/runs/<runId>/status.json`. Sin él, `orch wait <runId> --timeout 100 --json` en bucle mientras devuelva `"waiting": true`. Nunca dejes una llamada Bash bloqueada más allá del timeout de la herramienta.
 12. **Postflight.** `orch postflight <runId> --json`: checks deterministas y re-validación frente al baseline.
 13. **Decidir según el estado** (tabla siguiente).
 14. **Auditar** (SUCCESS o VALIDATION_FAILURE): PASS o REPAIR_REQUIRED, máximo 2 ciclos de repair. Escribe el veredicto en `runs/<runId>/audit.md`.
-15. **Cerrar.** `orch unlock --yes` y registra la corrida **original** (no los repairs) con `orch history record <runId> --verdict <PASS|REPAIR_REQUIRED> [--repairs N]`; si terminó en fallo (PLAN_CONTRADICTION, QUOTA, etc.) no lleva `--verdict`. Resume a Reed: veredicto, archivos tocados, validaciones, routing usado, cuota consumida y pendientes. **No hagas commit.**
+    - **14b. Verificación visual (opcional).** Solo si el plan trae una referencia visual (Figma) o texto que debe coincidir con un documento: captura la pantalla en desktop y mobile y compáralas con la referencia; el texto, línea por línea contra la fuente. Reporta lo comprobado (por ejemplo "94/94 líneas") y las diferencias. Sin referencia en el plan, sáltalo.
+15. **Cerrar.** `orch unlock --yes` y registra la corrida **original** (no los repairs) con `orch history record <runId> --verdict <PASS|REPAIR_REQUIRED> [--repairs N]`; si terminó en fallo (PLAN_CONTRADICTION, QUOTA, etc.) no lleva `--verdict`. Excepción: un PERMISSION_FAILURE que auditaste tú (la vía 3 de la nota de abajo) sí lleva `--verdict`; queda registrado como `permissionRetry: blocked` y no penaliza al modelo. Resume a Reed: veredicto, archivos tocados, validaciones, routing usado, cuota consumida, los `restoreSteps` del dev server si los hubo, los criterios fuera del repo y pendientes. **No hagas commit.**
 
 ## Qué hacer según la clasificación
 

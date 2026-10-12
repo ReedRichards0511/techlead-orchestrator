@@ -73,10 +73,12 @@ const keyOf = (c) => `${c.id}@${c.effort}`;
 const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 const failureRate = (h) => (h.problemRuns ?? (h.repairRequired ?? 0) + (h.validationFailures ?? 0)) / h.runs * 100;
 
+export const isExternalFailure = (r) => EXTERNAL_FAILURES.has(r.status) && !(r.status === 'PERMISSION_FAILURE' && r.verdict && r.verdict !== 'FAILED');
+
 export function countBootstrapRuns(runs, klass) {
   const counts = {};
   for (const r of runs) {
-    if (r.class !== klass || EXTERNAL_FAILURES.has(r.status)) continue;
+    if (r.class !== klass || isExternalFailure(r)) continue;
     counts[r.key] = (counts[r.key] ?? 0) + 1;
   }
   return counts;

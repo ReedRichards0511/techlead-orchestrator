@@ -1,6 +1,6 @@
 import { join } from 'node:path';
 import { readJson, writeJson } from './config.mjs';
-import { EXTERNAL_FAILURES, countBootstrapRuns } from './router.mjs';
+import { countBootstrapRuns, isExternalFailure } from './router.mjs';
 
 const NEVER_RAN = new Set(['QUOTA_EXHAUSTED', 'RATE_LIMITED', 'MODEL_UNAVAILABLE', 'PROVIDER_UNAVAILABLE']);
 const VERDICTS = new Set(['PASS', 'REPAIR_REQUIRED', 'FAILED']);
@@ -44,10 +44,11 @@ export function buildRunRecord({ status, verdict, repairs = 0, postflight = null
   if (!cls) throw new Error(`Run ${status?.runId ?? ''} has not finished (state: ${status?.state ?? 'unknown'}); record it after it ends`);
   if (!Number.isInteger(repairs) || repairs < 0) throw usageError(`--repairs must be a non-negative integer (got ${repairs})`);
   const needs = NEEDS_VERDICT.has(cls.status);
+  const mayAudit = needs || cls.status === 'PERMISSION_FAILURE';
   if (needs && !verdict) throw usageError(`A ${cls.status} run needs --verdict PASS|REPAIR_REQUIRED`);
   const final = verdict ?? 'FAILED';
   if (!VERDICTS.has(final)) throw usageError(`Invalid verdict: ${verdict} (expected PASS, REPAIR_REQUIRED or FAILED)`);
-  if (!needs && final !== 'FAILED') throw usageError(`Invalid verdict ${final} for a ${cls.status} run: it can only be FAILED`);
+  if (!mayAudit && final !== 'FAILED') throw usageError(`Invalid verdict ${final} for a ${cls.status} run: it can only be FAILED`);
   const meta = status.meta ?? {};
   const started = new Date(status.startedAt);
   const ended = new Date(status.endedAt ?? now);
@@ -62,7 +63,7 @@ export function buildRunRecord({ status, verdict, repairs = 0, postflight = null
     durationMin: round(Math.max(0, ended - started) / 60000, 1),
     scopeFlags: violations.filter((v) => v.code === 'OUT_OF_SCOPE').length,
     commentFlags: postflight?.comments?.length ?? 0,
-    permissionRetry: meta.permission === 'dangerous',
+    permissionRetry: cls.status === 'PERMISSION_FAILURE' && final !== 'FAILED' ? 'blocked' : meta.permission === 'dangerous',
     date: now.toISOString().slice(0, 10),
     at: now.toISOString(),
   };
@@ -80,7 +81,7 @@ export function aggregateRuns(runs) {
     const count = (f) => list.filter(f).length;
     out[key] = {
       runs: list.length,
-      success: count((r) => r.status === 'SUCCESS' && r.verdict === 'PASS'),
+      success: count((r) => r.verdict === 'PASS' && (r.status === 'SUCCESS' || r.status === 'PERMISSION_FAILURE')),
       repairRequired: count((r) => r.verdict === 'REPAIR_REQUIRED'),
       planContradictions: count((r) => r.status === 'PLAN_CONTRADICTION'),
       executionFailures: count((r) => r.status === 'EXECUTION_FAILURE'),
@@ -136,12 +137,12 @@ export function bootstrapReport(history, config, klass) {
   const keys = boot.candidates ?? [];
   const runsPerClass = boot.runsPerClass ?? 10;
   const active = Boolean(boot.enabled) && (boot.classes ?? []).includes(klass);
-  const counted = bootstrapRuns(history, klass).filter((r) => !EXTERNAL_FAILURES.has(r.status) && keys.includes(r.key));
+  const counted = bootstrapRuns(history, klass).filter((r) => !isExternalFailure(r) && keys.includes(r.key));
   const perKey = {};
   for (const key of keys) {
     const list = counted.filter((r) => r.key === key);
     const n = list.length;
-    const passNoRepair = list.filter((r) => r.status === 'SUCCESS' && r.verdict === 'PASS' && (r.repairs ?? 0) === 0).length;
+    const passNoRepair = list.filter((r) => (r.status === 'SUCCESS' || r.status === 'PERMISSION_FAILURE') && r.verdict === 'PASS' && (r.repairs ?? 0) === 0).length;
     perKey[key] = {
       runs: n,
       passNoRepair,

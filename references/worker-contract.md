@@ -23,9 +23,10 @@ Lo renderiza el runner; tú no lo escribes. Resumen para que sepas qué esperar 
 6. **CONTRADICTION:** si el plan contradice objetivamente al repo, se detiene y escribe `PLAN_CONTRADICTION` con toda la evidencia.
 7. **VALIDATION:** corre los comandos de "Validation" y distingue fallas preexistentes (baseline del packet) de las que introdujo.
 8. **GIT:** sin commit, push, merge, rebase, `reset --hard`, `clean`, borrar branches ni tocar el stash.
-9. **FORBIDDEN_COMMANDS:** la lista de `config.json`.
-10. Trabaja solo dentro de `WORKSPACE`.
-11. Al terminar o detenerse escribe `RESULT_PATH` con el schema de abajo. Es obligatorio.
+9. **RUNNER_FILES:** `.orchestrator/` es solo lectura para el worker: nunca lo importa, lee ni referencia desde código, tests, fixtures o config (git lo ignora y no existe en CI). Si el plan usa un archivo de ahí como fuente, el worker copia su contenido a una ruta versionada dentro del scope. El postflight marca `ORCHESTRATOR_REFERENCE` si una línea añadida lo menciona.
+10. **FORBIDDEN_COMMANDS:** la lista de `config.json`.
+11. Trabaja solo dentro de `WORKSPACE`.
+12. Al terminar o detenerse escribe `RESULT_PATH` con el schema de abajo. Es obligatorio.
 
 El packet está en inglés porque es un prompt para el worker; el contenido de tu plan puede estar en español.
 

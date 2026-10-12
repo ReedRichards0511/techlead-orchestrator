@@ -360,3 +360,44 @@ test('scanAddedComments classifies comment styles by extension', () => {
   ]);
   assert.deepEqual(found.map((f) => `${f.file}:${f.line}`), ['x.ts:1', 'x.ts:2', 'y.sh:2', 'z.html:1', 'q.sql:1']);
 });
+
+test('an added line that references .orchestrator is a violation and names the file', async () => {
+  const repo = makeRepo({ 'a.txt': 'x\n', 'src/m.js': 'const a = 1;\n' });
+  const s = await snap(repo, planText('src/'));
+  write(repo, 'src/m.js', "const a = 1;\nconst data = readFileSync('.orchestrator/assets/x.json');\n");
+  write(repo, 'src/n.test.js', "import x from '../.orchestrator/plans/p.md';\n");
+  const r = check(repo, s, planText('src/'));
+  const v = r.violations.find((x) => x.code === 'ORCHESTRATOR_REFERENCE');
+  assert.ok(v);
+  assert.equal(v.severity, 'violation');
+  assert.match(v.detail, /src\/m\.js/);
+  assert.match(v.detail, /src\/n\.test\.js/);
+  assert.doesNotMatch(v.detail, /readFileSync|assets/);
+  assert.equal(r.ok, false);
+});
+
+test('a pre-existing reference or a removed one is not flagged', async () => {
+  const repo = makeRepo({ 'a.txt': 'x\n', 'src/m.js': "const p = '.orchestrator/old';\nconst a = 1;\n" });
+  const s = await snap(repo, planText('src/'));
+  write(repo, 'src/m.js', "const p = '.orchestrator/old';\nconst a = 2;\n");
+  assert.equal(check(repo, s, planText('src/')).violations.some((v) => v.code === 'ORCHESTRATOR_REFERENCE'), false);
+  write(repo, 'src/m.js', 'const a = 3;\n');
+  assert.equal(check(repo, s, planText('src/')).violations.some((v) => v.code === 'ORCHESTRATOR_REFERENCE'), false);
+});
+
+test('mentions of .orchestrator in .gitignore are allowed but in docs and json are not', async () => {
+  const repo = makeRepo({ 'a.txt': 'x\n', '.gitignore': 'node_modules\n' });
+  const s = await snap(repo, planText('.gitignore, docs/, cfg.json'));
+  write(repo, '.gitignore', 'node_modules\n.orchestrator/\n');
+  assert.equal(check(repo, s, planText('.gitignore, docs/, cfg.json')).violations.some((v) => v.code === 'ORCHESTRATOR_REFERENCE'), false);
+  write(repo, 'cfg.json', '{"path":".orchestrator/x"}\n');
+  const r = check(repo, s, planText('.gitignore, docs/, cfg.json'));
+  assert.ok(r.violations.some((v) => v.code === 'ORCHESTRATOR_REFERENCE' && /cfg\.json/.test(v.detail)));
+});
+
+test('a word that merely contains orchestrator is not flagged', async () => {
+  const repo = makeRepo({ 'a.txt': 'x\n' });
+  const s = await snap(repo, planText('src/'));
+  write(repo, 'src/m.js', 'const orchestrator = 1;\nconst m = "my.orchestrators";\n');
+  assert.equal(check(repo, s, planText('src/')).violations.some((v) => v.code === 'ORCHESTRATOR_REFERENCE'), false);
+});

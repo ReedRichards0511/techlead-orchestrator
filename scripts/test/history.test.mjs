@@ -317,3 +317,41 @@ test('bootstrapState feeds the router with counts since the reset, ended and pro
   assert.equal(st.ended.FEATURE, true);
   assert.equal(st.promoted.FEATURE, SWE);
 });
+
+test('an audited run that ended in PERMISSION_FAILURE keeps its verdict and is marked blocked', () => {
+  const r = buildRunRecord({ status: status({ cls: 'PERMISSION_FAILURE' }), verdict: 'PASS', now: NOW });
+  assert.equal(r.status, 'PERMISSION_FAILURE');
+  assert.equal(r.verdict, 'PASS');
+  assert.equal(r.permissionRetry, 'blocked');
+  const repair = buildRunRecord({ status: status({ cls: 'PERMISSION_FAILURE' }), verdict: 'REPAIR_REQUIRED', repairs: 1, now: NOW });
+  assert.equal(repair.verdict, 'REPAIR_REQUIRED');
+});
+
+test('PERMISSION_FAILURE without a verdict is still FAILED and not marked blocked', () => {
+  const r = buildRunRecord({ status: status({ cls: 'PERMISSION_FAILURE' }), now: NOW });
+  assert.equal(r.verdict, 'FAILED');
+  assert.equal(r.permissionRetry, false);
+});
+
+test('other failures still reject an audited verdict', () => {
+  assert.throws(() => buildRunRecord({ status: status({ cls: 'QUOTA_EXHAUSTED' }), verdict: 'PASS', now: NOW }), /verdict/i);
+  assert.throws(() => buildRunRecord({ status: status({ cls: 'EXECUTION_FAILURE' }), verdict: 'REPAIR_REQUIRED', now: NOW }), /verdict/i);
+});
+
+test('an audited PERMISSION_FAILURE PASS counts as a success and does not penalize the model', () => {
+  const agg = aggregateRuns([rec({ status: 'PERMISSION_FAILURE', verdict: 'PASS', permissionRetry: 'blocked' }), rec()])['devin/swe-2/high/FEATURE'];
+  assert.equal(agg.runs, 2);
+  assert.equal(agg.success, 2);
+  assert.equal(agg.problemRuns, 0);
+  assert.equal(agg.permissionRetries, 1);
+});
+
+test('bootstrap counts an audited PERMISSION_FAILURE but not an unaudited one', () => {
+  let h = emptyHistory();
+  h = recordRun(h, rec({ runId: 'a', key: SWE, status: 'PERMISSION_FAILURE', verdict: 'PASS', permissionRetry: 'blocked' }));
+  h = recordRun(h, rec({ runId: 'b', key: SWE, status: 'PERMISSION_FAILURE', verdict: 'FAILED' }));
+  const rep = bootstrapReport(h, CONFIG, 'FEATURE');
+  assert.equal(rep.perKey[SWE].runs, 1);
+  assert.equal(rep.perKey[SWE].passNoRepair, 1);
+  assert.deepEqual(bootstrapState(h, CONFIG).counts.FEATURE, { [SWE]: 1 });
+});

@@ -35,7 +35,8 @@
   "safety": {
     "validationTimeoutSeconds": 600,
     "maxWhitespaceOnlyLines": 40,
-    "commentScanMaxFileBytes": 1000000
+    "commentScanMaxFileBytes": 1000000,
+    "devServerPorts": [3000, 3001, 4200, 5173, 8080, 8081, 19000, 19006]
   },
   "neverUseCodexResetCredits": true,
   "forbiddenCommands": [

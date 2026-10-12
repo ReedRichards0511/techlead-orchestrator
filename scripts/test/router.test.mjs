@@ -270,3 +270,12 @@ test('a promoted candidate never jumps over a better tier', () => {
   const ended = { counts: {}, ended: { FEATURE: true }, promoted: { FEATURE: 'codex/gpt-6.1-sol@medium' } };
   assert.equal(sel(route(base({ klass: 'FEATURE', bootstrap: ended }))), 'devin/gpt-6-1-sol@medium');
 });
+
+test('countBootstrapRuns counts a PERMISSION_FAILURE only when it was audited (verdict not FAILED)', () => {
+  const runs = [
+    { class: 'FEATURE', key: 'devin/swe-2@high', status: 'PERMISSION_FAILURE', verdict: 'PASS' },
+    { class: 'FEATURE', key: 'devin/swe-2@high', status: 'PERMISSION_FAILURE', verdict: 'FAILED' },
+    { class: 'FEATURE', key: 'devin/swe-2@high', status: 'PERMISSION_FAILURE' },
+  ];
+  assert.deepEqual(countBootstrapRuns(runs, 'FEATURE'), { 'devin/swe-2@high': 1 });
+});

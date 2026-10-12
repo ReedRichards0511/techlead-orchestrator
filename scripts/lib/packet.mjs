@@ -31,6 +31,9 @@ const POLICIES = {
   GIT_POLICY:
     'Never commit, push, merge, rebase, reset --hard, clean, delete branches or touch the stash. ' +
     'Do not touch changes that are not part of this task. Never write outside WORKSPACE.',
+  RUNNER_FILES_POLICY:
+    'The .orchestrator/ directory is runner state and is read-only for you (it is git-ignored and does not exist in CI). ' +
+    'Never import, read or reference it from source code, tests, fixtures or config. If the plan says to use a file from there as a source, copy its content into the project at a tracked path inside the plan scope.',
 };
 
 function contract(config) {
