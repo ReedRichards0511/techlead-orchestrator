@@ -18,6 +18,7 @@ devin -p --prompt-file <run>/packet.md --model <familia>-<effort>
 - Stdout es texto libre; el resultado semántico sale de `result.json`.
 - **Bloqueo silencioso:** un permiso denegado da exit 0, stdout vacío y en stderr `rejected a tool call that requires confirmation`. El runner lo clasifica PERMISSION_FAILURE.
 - `smart` es el modo mínimo que completa una tarea real en headless (`auto` y `accept-edits` bloquean `npm test` o crear archivos). Ante el bloqueo se reintenta con `--permission dangerous` (decisión de Reed); si hay cambios previos, con continuation.
+- **Allowlist por corrida (verificada en headless con `smart`):** antes de lanzar un worker Devin en modo restringido, el runner escribe `<repo>/.devin/config.local.json` con `permissions.allow: ["Exec(<comando>)", ...]`, una regla por cada comando de `## Validation` del plan. Devin las lee como config local del proyecto y deja pasar esos comandos (prefijo por palabra completa, también encadenados con `&&`). Se fusiona con un archivo existente, se excluye de git (`.git/info/exclude`) y se restaura o borra cuando la corrida se lee como terminada (`status`, `wait` o `postflight`) o con `orch unlock`. No se aplica en `dangerous`, en otros harnesses ni con `config.permissions.devin.allowlist: false`. Si el archivo existente no es JSON válido, no se toca. Sin verificar: el comportamiento con `.cmd` de Windows.
 - Modelos habilitados: SWE-2, GPT-6.1 Sol (sin `-priority`), Sonnet 5.5, Haiku 5.5, DeepSeek V4.1 Flash. Opus en Devin: no.
 
 ## Codex (worker)

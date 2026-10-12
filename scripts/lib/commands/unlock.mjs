@@ -1,6 +1,7 @@
-import { resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 import { option } from '../decide.mjs';
-import { lockStatus, releaseLock } from '../safety.mjs';
+import { restoreDevinAllowlist } from '../devin-allow.mjs';
+import { listRunDirs, lockStatus, releaseLock } from '../safety.mjs';
 
 export async function main(args) {
   const repo = resolve(option(args, '--repo') ?? process.cwd());
@@ -19,6 +20,9 @@ export async function main(args) {
     return 1;
   }
   releaseLock({ repo, planId: s.planId, force: true });
+  for (const id of listRunDirs(repo)) {
+    if (restoreDevinAllowlist({ repo, runDir: join(repo, '.orchestrator', 'runs', id) })) console.log(`Restored .devin/config.local.json left by run ${id}.`);
+  }
   console.log('Lock released.');
   return 0;
 }

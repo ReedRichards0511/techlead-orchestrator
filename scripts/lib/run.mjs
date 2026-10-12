@@ -2,6 +2,8 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } fr
 import { basename, join } from 'node:path';
 import { buildInvocation as defaultBuild, parseOutput } from './adapters/index.mjs';
 import { classifyRun, validateResult } from './classify.mjs';
+import { applyDevinAllowlist, restoreDevinAllowlist } from './devin-allow.mjs';
+import { parsePlanValidation } from './validate.mjs';
 import { gitPorcelain } from './git.mjs';
 import { renderContinuationPacket, renderPacket, renderRepairPacket } from './packet.mjs';
 import { resolveExecutable } from './platform.mjs';
@@ -102,22 +104,35 @@ export function startRun({
 
   acquireLock({ repo, planId, runId, now });
   appendEvent(runDir, { type: 'launch', ...meta });
-  const { supervisorPid } = launchBackground({
-    exe,
-    args: inv.args,
-    cwd: inv.cwd ?? repo,
-    stdinPath: inv.stdinPath ?? undefined,
-    stdoutPath: join(runDir, 'stdout.log'),
-    stderrPath: join(runDir, 'stderr.log'),
-    statusPath: join(runDir, 'status.json'),
-    wallMs,
-    idleMs,
-    watchDir: repo,
-    heartbeatMs: HEARTBEAT_MS,
-    meta,
-  });
+
+  let devinAllowlist = { applied: false, reason: 'not a restricted Devin run' };
+  if (entry.harness === 'devin' && meta.permission !== 'dangerous' && config.permissions?.devin?.allowlist !== false) {
+    devinAllowlist = applyDevinAllowlist({ repo, runDir, commands: parsePlanValidation(readText(planPath)) });
+    appendEvent(runDir, { type: 'allowlist', applied: devinAllowlist.applied, rules: devinAllowlist.rules?.length ?? 0, reason: devinAllowlist.reason });
+  }
+
+  let supervisorPid;
+  try {
+    ({ supervisorPid } = launchBackground({
+      exe,
+      args: inv.args,
+      cwd: inv.cwd ?? repo,
+      stdinPath: inv.stdinPath ?? undefined,
+      stdoutPath: join(runDir, 'stdout.log'),
+      stderrPath: join(runDir, 'stderr.log'),
+      statusPath: join(runDir, 'status.json'),
+      wallMs,
+      idleMs,
+      watchDir: repo,
+      heartbeatMs: HEARTBEAT_MS,
+      meta,
+    }));
+  } catch (e) {
+    restoreDevinAllowlist({ repo, runDir });
+    throw e;
+  }
   acquireLock({ repo, planId, runId, pid: supervisorPid, now });
-  return { runId, runDir, statusPath: join(runDir, 'status.json'), supervisorPid };
+  return { runId, runDir, statusPath: join(runDir, 'status.json'), supervisorPid, devinAllowlist };
 }
 
 function assertWriterFree(repo, planId) {
@@ -171,6 +186,7 @@ export function getStatus({ repo, runId, rateRetries = 0, now = new Date() }) {
     return out;
   }
 
+  restoreDevinAllowlist({ repo, runDir });
   const harness = st.meta?.harness;
   const stdout = readText(join(runDir, 'stdout.log'));
   const stderr = readText(join(runDir, 'stderr.log'));

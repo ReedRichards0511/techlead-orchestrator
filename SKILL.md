@@ -74,7 +74,7 @@ Sigue los pasos en orden. Lee cada referencia solo cuando el paso la nombre.
 | SUCCESS | `postflight` | Postflight y auditoría |
 | VALIDATION_FAILURE | `audit` | Auditoría; si hay regresiones, repair con el **mismo** worker |
 | PLAN_CONTRADICTION | `stop-opus` | **Sin fallback.** Lee `result.json → planContradiction`, contrasta con el repo, corrige el plan o pregunta a Reed. Luego relanza |
-| PERMISSION_FAILURE (Devin) | `retry-dangerous` | Relanza con `--permission dangerous` (con continuation si hubo cambios). Menciónalo en el resumen. Si el clasificador de Claude Code bloquea ese comando, mira la nota de abajo |
+| PERMISSION_FAILURE (Devin) | `retry-dangerous` | Relanza con `--permission dangerous` (con continuation si hubo cambios). Menciónalo en el resumen. El runner ya da a Devin una allowlist con los comandos de `## Validation` del plan, así que un bloqueo suele venir de un comando que el plan no listó: añádelo al plan antes de recurrir a `dangerous`. Si el clasificador de Claude Code bloquea ese comando, mira la nota de abajo |
 | fallo `BEFORE_WORK` | `fallback` | Sin diff: relanza al siguiente candidato con `--exclude <id>@<effort>` |
 | fallo `DURING_WORK` | `continuation` | Hubo diff: continuation packet (abajo). No reinicies a ciegas |
 | RATE_LIMITED | `wait-retry` | Espera brevemente y reintenta una vez; después, fallback |

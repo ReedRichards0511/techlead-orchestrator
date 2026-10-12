@@ -233,3 +233,17 @@ test('preflight without a listening dev server reports none', () => {
   assert.equal(r.status, 0, r.stderr + r.stdout);
   assert.equal(JSON.parse(r.stdout).devServers, null);
 });
+
+test('unlock restores a .devin/config.local.json left behind by a run that never finished', async () => {
+  const { applyDevinAllowlist } = await import('../lib/devin-allow.mjs');
+  const { repo, plan } = makeRepo();
+  orchRun(['preflight', '--plan', plan, '--repo', repo, '--skip-baseline', '--dev-ports', '1', '--json']);
+  const runDir = join(repo, '.orchestrator', 'runs', 'p1-x');
+  mkdirSync(runDir, { recursive: true });
+  applyDevinAllowlist({ repo, runDir, commands: ['npm test'] });
+  assert.ok(existsSync(join(repo, '.devin', 'config.local.json')));
+  const r = orchRun(['unlock', '--repo', repo, '--yes']);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /Restored \.devin\/config\.local\.json/);
+  assert.equal(existsSync(join(repo, '.devin')), false);
+});
