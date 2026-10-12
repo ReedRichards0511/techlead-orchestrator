@@ -1,0 +1,51 @@
+{
+  "skill_name": "orchestrator",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Reed pide: «El cliente HTTP de src/api/client.js no tiene timeout. Agrega un timeout de 8 segundos configurable a get() y post().» Actúa como Tech Lead: entiende el repo, escribe el plan, clasifica la tarea, decide a qué worker delegarla y deja todo listo para lanzarla. No implementes el código tú.",
+      "expected_output": "Plan en .orchestrator/plans con Scope y Validation parseables, preflight ejecutado, ROUTING DECISION mostrada, comando de run propuesto y ningún worker lanzado.",
+      "files": [],
+      "expectations": [
+        "Existe al menos un plan en repo/.orchestrator/plans/*.md",
+        "parseScope del plan devuelve inScope que incluye src/api/client.js",
+        "parsePlanValidation del plan devuelve npm test (comando real del repo)",
+        "El reporte clasifica la tarea como SMALL_FIX o BUG_SIMPLE",
+        "El reporte incluye un bloque ROUTING DECISION con Selected, Reason, Quota y Fallback",
+        "Existe repo/.orchestrator/snapshots/<planId>.json (evidencia de orch preflight)",
+        "El reporte contiene el comando exacto de orch run con --plan y --class, sin haberlo ejecutado",
+        "No hay carpeta .orchestrator/runs con corridas, src/ no cambió y git log tiene un solo commit"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Un worker (Devin) terminó la corrida add-retry-20261012T100000 en este repo (mira la carpeta .orchestrator/). Continúa el trabajo desde ahí como Tech Lead: decide el siguiente paso y déjalo preparado. Puedes editar el plan; no edites código fuente.",
+      "expected_output": "Reconoce PLAN_CONTRADICTION, no hace fallback a otro worker, verifica contra el repo, corrige el plan (client.js, get/post) o pregunta a Reed, y no lanza nada.",
+      "files": [],
+      "expectations": [
+        "El reporte identifica la PLAN_CONTRADICTION (http.js/request() no existe; el cliente es client.js con get/post)",
+        "El reporte NO propone cambiar de worker/modelo/harness como respuesta a la contradicción ni usa --exclude",
+        "El reporte dice explícitamente que la contradicción vuelve a Opus (sin fallback) y que no se reintenta a ciegas",
+        "El reporte muestra que verificó el repo (client.js, get/post) antes de decidir",
+        "El plan fue editado para apuntar a src/api/client.js (get/post) y tests existentes, o el reporte formula una pregunta concreta a Reed",
+        "src/ y test/ no cambiaron respecto del commit inicial",
+        "No hay corridas nuevas en .orchestrator/runs y git log tiene un solo commit"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "La corrida user-search-20261012T101500 (Codex) terminó con error en este repo (mira .orchestrator/). Continúa el trabajo como Tech Lead: decide el siguiente paso y déjalo preparado.",
+      "expected_output": "Clasifica QUOTA_EXHAUSTED BEFORE_WORK, refresca la cuota, prepara un fallback excluyendo codex/gpt-6.1-sol@medium y no lanza nada; sin continuation porque no hay diff.",
+      "files": [],
+      "expectations": [
+        "El reporte clasifica el fallo como QUOTA_EXHAUSTED en fase BEFORE_WORK (sin diff)",
+        "El reporte o la transcripción muestra que se refrescó la cuota (orch quota refresh) o que se hizo según la skill",
+        "El comando propuesto usa --exclude codex/gpt-6.1-sol@medium o elige explícitamente otro candidato distinto de Codex Sol Medium",
+        "No se propone reintentar el mismo worker (Codex Sol) ni esperar a que se resetee como solución principal",
+        "No se arma un continuation packet (no hubo cambios en el repo)",
+        "El fallback sale de orch route / recálculo del router (se muestra un ROUTING DECISION o la lista de candidatos)",
+        "No hay corridas nuevas en .orchestrator/runs y git log tiene un solo commit"
+      ]
+    }
+  ]
+}

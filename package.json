@@ -1,0 +1,13 @@
+{
+  "name": "techlead-orchestrator",
+  "version": "0.1.0",
+  "description": "Skill de Claude Code: Opus como Tech Lead que planifica, enruta y audita, y delega la implementación a workers Devin, Codex y Antigravity.",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "test": "node --test \"scripts/test/*.test.mjs\"",
+    "doctor": "node scripts/orch.mjs doctor"
+  }
+}

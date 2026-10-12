@@ -1,0 +1,46 @@
+{
+  "version": 1,
+  "platformOverrides": { "paths": { "devin": null, "codex": null, "agy": null, "claude": null } },
+  "thresholds": { "healthy": 50, "moderate": 25, "low": 10 },
+  "reserves": { "claude": 35, "codex": 20, "devin": 0, "antigravity": 10 },
+  "quotaTtlSeconds": 600,
+  "repairMaxCycles": 2,
+  "bootstrap": {
+    "enabled": true,
+    "classes": ["REFACTOR", "MIGRATION", "FEATURE"],
+    "candidates": ["devin/gpt-6-1-sol@medium", "devin/swe-2@high"],
+    "runsPerClass": 10,
+    "askBeforeReorder": true
+  },
+  "timeouts": {
+    "SMALL_FIX": 20,
+    "BUG_SIMPLE": 25,
+    "MECHANICAL_CHANGE": 40,
+    "TEST_GENERATION": 40,
+    "REFACTOR": 60,
+    "MIGRATION": 90,
+    "FEATURE": 75,
+    "CROSS_LAYER_FEATURE": 90,
+    "BUG_COMPLEX": 75,
+    "NATIVE_MOBILE": 90,
+    "ARCHITECTURAL_IMPL": 120,
+    "idleMinutes": 15
+  },
+  "permissions": {
+    "devin": { "default": "smart", "retryOnBlock": "dangerous" },
+    "codex": { "bypassSandbox": true },
+    "agy": { "skipPermissions": true, "auto": true }
+  },
+  "quotaSources": { "devinUnofficial": true, "claudeStatusline": false },
+  "safety": {
+    "validationTimeoutSeconds": 600,
+    "maxWhitespaceOnlyLines": 40,
+    "commentScanMaxFileBytes": 1000000
+  },
+  "neverUseCodexResetCredits": true,
+  "forbiddenCommands": [
+    "git commit", "git push", "git merge", "git rebase", "git reset --hard",
+    "git clean", "git branch -D", "git checkout -- .", "git stash drop", "npm publish",
+    "rm -rf /", "Remove-Item -Recurse C:\\"
+  ]
+}
