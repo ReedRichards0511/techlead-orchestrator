@@ -1,4 +1,4 @@
-import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { buildInvocation as defaultBuild, parseOutput } from './adapters/index.mjs';
 import { classifyRun, validateResult } from './classify.mjs';
@@ -56,6 +56,7 @@ export function startRun({
 
   const planId = basename(planPath, '.md');
   assertWriterFree(repo, planId);
+  const repairCycle = packetKind === 'repair' ? repairCycleFor(repo, planId, config) : null;
   let runId = `${planId}-${stamp(now)}`;
   for (let n = 2; existsSync(runDirOf(repo, runId)); n++) runId = `${planId}-${stamp(now)}-${n}`;
   const runDir = runDirOf(repo, runId);
@@ -68,6 +69,7 @@ export function startRun({
     packetText ??
       (packetKind ? PACKET_RENDERERS[packetKind] : renderPacket)({
         ...packetData,
+        ...(repairCycle ? { cycle: repairCycle } : {}),
         runId,
         project: project ?? basename(repo),
         stack,
@@ -106,6 +108,8 @@ export function startRun({
     planPath,
     permission: inv.permission ?? permission ?? null,
     forbidden: config.forbiddenCommands ?? [],
+    ...(packetKind ? { packetKind } : {}),
+    ...(repairCycle ? { repairCycle } : {}),
     ...(retryOf ? { allowlistRetryOf: retryOf } : {}),
     heartbeatMs: HEARTBEAT_MS,
   };
@@ -142,6 +146,21 @@ export function startRun({
   }
   acquireLock({ repo, planId, runId, pid: supervisorPid, now });
   return { runId, runDir, statusPath: join(runDir, 'status.json'), supervisorPid, devinAllowlist };
+}
+
+function repairCycleFor(repo, planId, config) {
+  const runs = join(repo, '.orchestrator', 'runs');
+  const done = existsSync(runs)
+    ? readdirSync(runs).filter((id) => {
+        const meta = readStatus(join(runs, id, 'status.json'))?.meta;
+        return meta?.planId === planId && meta?.packetKind === 'repair';
+      }).length
+    : 0;
+  const max = config.repairMaxCycles ?? 2;
+  if (done >= max) {
+    throw new Error(`Repair limit reached for plan ${planId}: ${done} of ${max} repair cycles already used. Do not loop: re-plan, continue with another worker or ask Reed`);
+  }
+  return done + 1;
 }
 
 function assertWriterFree(repo, planId) {

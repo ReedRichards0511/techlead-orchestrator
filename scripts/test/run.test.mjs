@@ -103,7 +103,7 @@ test('a repair kind renders a repair packet bound to the new run', async () => {
     packetData: { cycle: 2, points: [{ file: 'src/a.ts', line: 7, issue: 'missing export', expected: 'export foo' }], commands: ['npm test'] },
   });
   const packet = readFileSync(join(run.runDir, 'packet.md'), 'utf8');
-  assert.match(packet, /REPAIR PACKET \(cycle 2\)/);
+  assert.match(packet, /REPAIR PACKET \(cycle 1\)/);
   assert.ok(packet.includes(run.runId));
   assert.ok(packet.includes(`PLAN_PATH: ${planPath}`));
   assert.ok(packet.includes(`RESULT_PATH: ${join(run.runDir, 'result.json')}`));
