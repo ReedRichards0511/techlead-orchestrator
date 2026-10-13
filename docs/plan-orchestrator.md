@@ -1,5 +1,7 @@
 # Plan de implementación — Skill global `orchestrator` para Claude Code
 
+> **Flujo actual (2026-10-13):** la implementación recomienda una combinación y hasta tres alternativas del conjunto autorizado; Reed elige con `AskUserQuestion` después del análisis y el plan, antes del preflight. `run` exige modelo y effort explícitos. Las cuotas son diagnóstico opcional, los porcentajes/reservas no afectan las recomendaciones y el bootstrap no alterna workers. Se conserva la detección reactiva de límites. Las secciones históricas de selección automática y cuotas de este documento quedan reemplazadas por `SKILL.md` y `references/routing-policy.md`.
+
 > Estado: **BORRADOR PARA REVISIÓN**. No hay nada implementado.
 > Fecha: 2026-10-12 · Autor: Claude (Opus 5.5) junto con Reed
 > Plataformas objetivo: **Windows y macOS** (CachyOS fuera de alcance)

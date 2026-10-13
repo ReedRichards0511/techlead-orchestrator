@@ -1,11 +1,10 @@
 import { computeDecision, option } from '../decide.mjs';
-import { CLASSES, formatDecision } from '../router.mjs';
+import { CLASSES, formatDecision, workerQuestion } from '../router.mjs';
 
 export function formatExplain(d) {
   const lines = ['', 'Candidates (best first):'];
-  d.ranked.forEach((c, i) => {
-    const flags = [c.protected ? 'PROTECTED' : null, c.effTier !== c.tier ? 'tier dropped' : null].filter(Boolean).join(', ');
-    lines.push(`  ${i + 1}. ${c.id} @ ${c.effort}  tier ${c.effTier}  quota ${c.quotaHealth}${flags ? `  (${flags})` : ''}`);
+  d.options.forEach((c, i) => {
+    lines.push(`  ${i + 1}. ${c.id} @ ${c.effort}  tier ${c.tier}: ${c.reason}`);
   });
   if (d.excluded.length) {
     lines.push('', 'Excluded:');
@@ -15,14 +14,13 @@ export function formatExplain(d) {
     lines.push('', 'Notes:');
     for (const n of d.notes) lines.push(`  - ${n}`);
   }
-  if (d.quotaUnknown.length) lines.push('', `Quota unknown for: ${d.quotaUnknown.join(', ')}`);
   return lines.join('\n');
 }
 
 export async function main(args, ctx) {
   const klass = option(args, '--class');
   if (!klass || !CLASSES[klass]) {
-    console.error(`Usage: orch route --class <${Object.keys(CLASSES).join('|')}> [--exclude key,key] [--allow-protected provider] [--explain] [--json]`);
+    console.error(`Usage: orch route --class <${Object.keys(CLASSES).join('|')}> [--exclude key,key] [--explain] [--json]`);
     if (klass) console.error(`Unknown class: ${klass}`);
     return 2;
   }
@@ -35,11 +33,10 @@ export async function main(args, ctx) {
   }
   const { decision, config, history } = result;
   if (args.includes('--json')) {
-    const { quotas: _q, ...rest } = decision;
-    console.log(JSON.stringify(rest, null, 2));
+    console.log(JSON.stringify({ ...decision, question: workerQuestion(decision) }, null, 2));
   } else {
     console.log(formatDecision(decision, { config, history }));
     if (args.includes('--explain')) console.log(formatExplain(decision));
   }
-  return decision.selected ? 0 : 1;
+  return decision.recommended ? 0 : 1;
 }

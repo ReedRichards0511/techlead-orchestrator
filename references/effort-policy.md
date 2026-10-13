@@ -1,10 +1,10 @@
 # Política de effort
 
-Elige el **mínimo** effort que mantenga la fiabilidad necesaria: más effort gasta cuota y tiempo, y en coding los modelos suelen rendir mejor por debajo del máximo. Léelo en el paso 8 del flujo.
+Recomienda el **mínimo** effort que mantenga la fiabilidad necesaria; Reed elige la combinación antes de ejecutarla. Léelo en el paso 7 del flujo.
 
 ## Reglas
 
-- El effort **siempre se pasa explícito**. El default de Codex para Sol es `low`, que es poco para casi todo.
+- El effort **siempre se pasa explícito** y es el elegido por Reed; el runner no usa el default del CLI ni del catálogo para completarlo.
 - Los efforts válidos salen del catálogo (`orch models`), descubierto del CLI. El runner rechaza un effort que no esté en `allowedEfforts` del modelo.
 - **XHigh/Max de Sol** solo con una justificación escrita por ti en el plan (`Effort justification:` en el encabezado). Sin eso, no los uses.
 - **`ultra` está prohibido**: lanza subagentes en paralelo y rompe la regla de un solo escritor. El adapter de Codex lo rechaza.
@@ -30,4 +30,4 @@ Elige el **mínimo** effort que mantenga la fiabilidad necesaria: más effort ga
 
 ## Repair
 
-Un repair usa el mismo modelo y effort que la corrida original. Sube un nivel solo si el repair se debe a razonamiento insuficiente, y anótalo en `audit.md`.
+Un repair usa el mismo modelo y effort que la corrida original. Si hay evidencia de razonamiento insuficiente, propone subir un nivel, espera la elección de Reed y anótala en `audit.md`; no escales por tu cuenta.

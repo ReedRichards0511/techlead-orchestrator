@@ -18,6 +18,15 @@ const REACTIVE_TTL_SECONDS = 3600;
 
 const cachePath = (stateDir) => join(stateDir, 'quota-cache.json');
 
+export function exhaustedProviders({ stateDir, now = new Date() }) {
+  let cache;
+  try { cache = readJson(cachePath(stateDir), {}) ?? {}; } catch { return []; }
+  return Object.entries(cache).filter(([, q]) => {
+    const age = (now.getTime() - Date.parse(q?.retrievedAt)) / 1000;
+    return q?.source === 'reactive' && q.health === 'EXHAUSTED' && age >= 0 && age <= REACTIVE_TTL_SECONDS;
+  }).map(([provider]) => provider);
+}
+
 function refreshFreshness(entry, now, ttl) {
   return { ...entry, freshness: entry.freshness === 'UNAVAILABLE' ? 'UNAVAILABLE' : freshnessFor({ source: entry.source, retrievedAt: entry.retrievedAt, now, ttl }) };
 }

@@ -10,6 +10,8 @@ import { renderContinuationPacket, renderPacket, renderRepairPacket } from './pa
 import { resolveExecutable } from './platform.mjs';
 import { launchBackground, readStatus } from './proc.mjs';
 import { acquireLock, readLock, workingTreeSnapshot } from './safety.mjs';
+import { normalizeUsage } from './usage.mjs';
+import { fileOperationCommands, parseFileOperations } from './file-operations.mjs';
 
 const HEARTBEAT_MS = 30000;
 const ENDED = new Set(['exited', 'timeout', 'error']);
@@ -67,6 +69,7 @@ export function startRun({
   let runId = `${planId}-${stamp(now)}`;
   for (let n = 2; existsSync(runDirOf(repo, runId)); n++) runId = `${planId}-${stamp(now)}-${n}`;
   const runDir = runDirOf(repo, runId);
+  const fileCommands = fileOperationCommands({ repo, planId, runId, planText: readText(planPath) });
   mkdirSync(runDir, { recursive: true });
 
   const resultPath = join(runDir, 'result.json');
@@ -88,6 +91,8 @@ export function startRun({
         projectRules: packetData?.projectRules ?? projectRules,
         baseline: recordedBaseline,
         config,
+        fileCommands,
+        fileOperations: parseFileOperations(readText(planPath)),
       }),
   );
   const launchSnapshot = snapshot ?? workingTreeSnapshot(repo);
@@ -116,6 +121,7 @@ export function startRun({
     ...(repairCycle ? { repairCycle } : {}),
     ...(retryOf ? { allowlistRetryOf: retryOf } : {}),
     heartbeatMs: HEARTBEAT_MS,
+    ...(fileCommands.length ? { fileCommands } : {}),
   };
 
   acquireLock({ repo, planId, runId, now });
@@ -123,7 +129,7 @@ export function startRun({
 
   let devinAllowlist = { applied: false, reason: 'not a restricted Devin run' };
   if (entry.harness === 'devin' && meta.permission !== 'dangerous' && config.permissions?.devin?.allowlist !== false) {
-    devinAllowlist = applyDevinAllowlist({ repo, runDir, commands: [...parsePlanValidation(readText(planPath)), ...allowExec] });
+    devinAllowlist = applyDevinAllowlist({ repo, runDir, commands: [...parsePlanValidation(readText(planPath)), ...fileCommands, ...allowExec] });
     appendEvent(runDir, { type: 'allowlist', applied: devinAllowlist.applied, rules: devinAllowlist.rules?.length ?? 0, reason: devinAllowlist.reason });
   }
 
@@ -237,7 +243,8 @@ export function getStatus({ repo, runId, rateRetries = 0, now = new Date() }) {
     }
   }
   const parsed = parseOutput(harness, { exitCode: st.exitCode, stdout, stderr, runDir });
-  if (harness === 'devin' && parsed.usage) out.usage = parsed.usage;
+  const usage = normalizeUsage(harness, parsed.usage);
+  if (usage) out.usage = usage;
   const classification = classifyRun({
     harness,
     state: st.state,
@@ -252,6 +259,7 @@ export function getStatus({ repo, runId, rateRetries = 0, now = new Date() }) {
     forbidden: st.meta?.forbidden ?? [],
     repo,
     allowlistRetry: Boolean(st.meta?.allowlistRetryOf),
+    allowedFileCommands: st.meta?.fileCommands ?? [],
     rateRetries,
   });
   if (invalid) classification.detail = `${classification.detail}; result.json invalid: ${errors.join('; ')}`;

@@ -2,12 +2,8 @@ import { join } from 'node:path';
 import { loadConfig, readJson } from './config.mjs';
 import { resolveExecutable } from './platform.mjs';
 import { CLASSES, route } from './router.mjs';
-import { bootstrapState, loadHistory } from './history.mjs';
-import { getAllQuotas } from './quota/index.mjs';
-import { fetchCodexQuota } from './quota/codex.mjs';
-import { readClaudeUsage } from './quota/claude.mjs';
-
-const REFRESH_CLASSES = new Set(['FEATURE', 'CROSS_LAYER_FEATURE', 'BUG_COMPLEX', 'NATIVE_MOBILE', 'ARCHITECTURAL_IMPL']);
+import { loadHistory } from './history.mjs';
+import { exhaustedProviders } from './quota/index.mjs';
 
 export function option(args, name) {
   const i = args.indexOf(name);
@@ -29,36 +25,18 @@ export async function computeDecision({ klass, args = [], stateDir }) {
   const catalog = loadCatalog(stateDir);
   const config = loadConfig({ stateDir });
   const overrides = config.platformOverrides?.paths ?? {};
-  const codexExe = resolveExecutable('codex', { overrides });
-  const deps = {
-    fetchCodex: (o) => (codexExe ? fetchCodexQuota({ exe: codexExe, ...o }) : Promise.reject(new Error('codex not found'))),
-    readClaude: (o) => readClaudeUsage({ file: join(stateDir, 'claude-usage.json'), ...o }),
-    fetchDevin: null,
-  };
-  const quotas = await getAllQuotas({
-    stateDir,
-    config,
-    now: new Date(),
-    deps,
-    refresh: REFRESH_CLASSES.has(klass) || args.includes('--refresh-quota'),
-    estimatedMinutes: CLASSES[klass].estimatedMinutes,
-  });
-
   const stored = loadHistory(stateDir);
-  const bootstrap = bootstrapState(stored, config);
   const history = stored.aggregates;
   const workers = Object.fromEntries(['devin', 'codex', 'agy'].map((n) => [n, Boolean(resolveExecutable(n, { overrides }))]));
 
   const decision = route({
     klass,
     catalog,
-    quotas,
-    config,
     workers,
     history,
-    bootstrap,
+    bootstrap: stored.bootstrap,
     exclude: list(option(args, '--exclude')),
-    allowProtected: list(option(args, '--allow-protected')),
+    exhaustedProviders: exhaustedProviders({ stateDir }),
   });
   return { decision, config, history, catalog };
 }

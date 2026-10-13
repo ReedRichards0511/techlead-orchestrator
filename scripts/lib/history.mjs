@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 import { readJson, writeJson } from './config.mjs';
 import { countBootstrapRuns, isExternalFailure } from './router.mjs';
+import { USAGE_FIELDS, USAGE_SOURCES } from './usage.mjs';
 
 const NEVER_RAN = new Set(['QUOTA_EXHAUSTED', 'RATE_LIMITED', 'MODEL_UNAVAILABLE', 'PROVIDER_UNAVAILABLE']);
 const VERDICTS = new Set(['PASS', 'REPAIR_REQUIRED', 'FAILED']);
@@ -50,13 +51,14 @@ export function buildRunRecord({ status, verdict, repairs = 0, postflight = null
   const final = verdict ?? 'FAILED';
   if (!VERDICTS.has(final)) throw usageError(`Invalid verdict: ${verdict} (expected PASS, REPAIR_REQUIRED or FAILED)`);
   if (!mayAudit && final !== 'FAILED') throw usageError(`Invalid verdict ${final} for a ${cls.status} run: it can only be FAILED`);
+  if (final === 'PASS' && postflight?.ok === false) throw usageError('Cannot record PASS while postflight is NOT OK; resolve blocking findings and rerun postflight');
   const meta = status.meta ?? {};
   const started = new Date(status.startedAt);
   const ended = new Date(status.endedAt ?? now);
   const violations = postflight?.violations ?? [];
   const usage = {};
-  if (meta.harness === 'devin' && status.usage?.source === 'devin-export') {
-    for (const key of ['promptTokens', 'cachedTokens', 'completionTokens']) {
+  if (USAGE_SOURCES[meta.harness] && status.usage?.source === USAGE_SOURCES[meta.harness]) {
+    for (const key of USAGE_FIELDS) {
       const value = status.usage[key];
       if (Number.isSafeInteger(value) && value >= 0) usage[key] = value;
     }
@@ -74,7 +76,7 @@ export function buildRunRecord({ status, verdict, repairs = 0, postflight = null
     scopeFlags: violations.filter((v) => (v.code === 'SOFT_SCOPE_VIOLATION' || v.code === 'OUT_OF_SCOPE')).length,
     commentFlags: postflight?.comments?.length ?? 0,
     permissionRetry: (cls.status === 'PERMISSION_FAILURE' && final !== 'FAILED') || meta.permission === 'dangerous' || Boolean(meta.allowlistRetryOf),
-    ...(Object.keys(usage).length ? { usage: { source: 'devin-export', ...usage } } : {}),
+    ...(Object.keys(usage).length ? { usage: { source: USAGE_SOURCES[meta.harness], ...usage, ...(status.usage.partial === true ? { partial: true } : {}) } } : {}),
     date: now.toISOString().slice(0, 10),
     at: now.toISOString(),
   };
@@ -258,7 +260,7 @@ export function formatBootstrap(report) {
   lines.push(...pad(rows).map((l) => `  ${l}`));
   const [sol, swe] = report.keys;
   const messages = {
-    IN_PROGRESS: 'Recommendation: IN_PROGRESS. Keep alternating.',
+    IN_PROGRESS: 'Recommendation: IN_PROGRESS. Collect user-approved runs; no automatic alternation.',
     INSUFFICIENT_DATA: 'Recommendation: INSUFFICIENT_DATA. One candidate has no counted runs; no reorder is justified.',
     KEEP_SOL: `Recommendation: KEEP_SOL. ${swe} does not match ${sol}. Close with: orch bootstrap end --class ${report.class}`,
     PROMOTE_SWE2: `Recommendation: PROMOTE_SWE2. ${swe} matches or beats ${sol} with no more scope flags. Confirm with Reed before reordering, then: orch bootstrap end --class ${report.class} --promote ${swe}`,
@@ -296,9 +298,9 @@ export function formatHistory(history, { config = {}, klass, now = new Date() } 
   }
   const runs = history.runs.filter(r => !klass || r.class === klass);
   if (runs.some(r => r.usage)) {
-    const rows = [['run', 'prompt', 'cached', 'completion']];
-    for (const r of runs) rows.push([r.runId, r.usage?.promptTokens ?? 'UNKNOWN', r.usage?.cachedTokens ?? 'UNKNOWN', r.usage?.completionTokens ?? 'UNKNOWN']);
-    lines.push('', 'Worker tokens by run (Devin export; architect tokens not measured):', ...pad(rows));
+    const rows = [['run', 'prompt', 'cached', 'completion', 'total', 'source']];
+    for (const r of runs) rows.push([r.runId, r.usage?.promptTokens ?? 'UNKNOWN', r.usage?.cachedTokens ?? 'UNKNOWN', r.usage?.completionTokens ?? 'UNKNOWN', r.usage?.totalTokens ?? 'UNKNOWN', r.usage?.source ?? 'UNKNOWN']);
+    lines.push('', 'Worker tokens by run (task totals and architect: orch usage report):', ...pad(rows));
   }
   return lines.join('\n');
 }

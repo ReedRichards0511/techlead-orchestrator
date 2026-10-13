@@ -89,7 +89,7 @@ test('status and history expose Devin token counts and keep private export data 
     session_id: 'private-session', steps: [{ message: 'private prompt' }],
     final_metrics: { total_prompt_tokens: 1000, total_completion_tokens: 20, total_cached_tokens: 900 },
   }));
-  const usage = { source: 'devin-export', promptTokens: 1000, completionTokens: 20, cachedTokens: 900 };
+  const usage = { source: 'devin-export', promptTokens: 1000, completionTokens: 20, cachedTokens: 900, totalTokens: 1020 };
   const status = orchRun(state, ['status', 'p1-usage', '--repo', repo, '--json']);
   assert.equal(status.status, 0, status.stderr);
   assert.deepEqual(JSON.parse(status.stdout).usage, usage);

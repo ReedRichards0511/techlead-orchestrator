@@ -7,7 +7,7 @@ export function summarize(st) {
   const lines = [`${st.runId}  ${st.state}${st.lost ? ' (LOST: no heartbeat)' : ''}  elapsed ${st.elapsedSeconds}s`];
   if (st.meta) lines.push(`  ${st.meta.harness} / ${st.meta.model} @ ${st.meta.effort}  class ${st.meta.klass}`);
   if (c) lines.push(`  ${c.status}${c.phase ? ` (${c.phase})` : ''} -> ${c.action}: ${c.detail}`);
-  if (st.usage) lines.push(`  Worker tokens (Devin export): prompt ${st.usage.promptTokens ?? 'UNKNOWN'} / cached ${st.usage.cachedTokens ?? 'UNKNOWN'} / completion ${st.usage.completionTokens ?? 'UNKNOWN'}`);
+  if (st.usage) lines.push(`  Worker tokens (${st.usage.source}): total ${st.usage.totalTokens ?? 'UNKNOWN'} / prompt ${st.usage.promptTokens ?? 'UNKNOWN'} / cached ${st.usage.cachedTokens ?? 'UNKNOWN'} / completion ${st.usage.completionTokens ?? 'UNKNOWN'}`);
   return lines.join('\n');
 }
 

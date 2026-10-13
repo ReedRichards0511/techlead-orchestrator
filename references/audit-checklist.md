@@ -1,6 +1,6 @@
 # Postflight, auditoría y recuperación
 
-Qué verifica el runner solo, qué debes verificar tú y qué hacer ante una violación. Léelo en los pasos 12 a 14 del flujo.
+Qué verifica el runner solo, qué debes verificar tú y qué hacer ante una violación. Lo lee el auditor (subagente, paso 11 del flujo; `references/subagents.md`).
 
 ## Contenido
 
@@ -12,7 +12,7 @@ Qué verifica el runner solo, qué debes verificar tú y qué hacer ante una vio
 
 ## 1. Postflight determinista
 
-`orch postflight <runId> --json` escribe `runs/<runId>/postflight.json` y sale con código 1 si algo no está OK.
+`orch go` corre el postflight al terminar un SUCCESS o VALIDATION_FAILURE (también `orch postflight <runId>` por separado), escribe `runs/<runId>/postflight.json` e informa `POSTFLIGHT OK` o `NOT OK`.
 
 | Código | Severidad | Qué significa | Qué haces |
 |---|---|---|---|
@@ -25,10 +25,12 @@ Qué verifica el runner solo, qué debes verificar tú y qué hacer ante una vio
 | ORCHESTRATOR_REFERENCE | violación | una línea añadida menciona `.orchestrator/` (código, tests, fixtures o config; se excluyen `.gitignore` y similares) | Pide repair: el contenido debe vivir en una ruta versionada dentro del scope. Pasaría en local y fallaría en CI |
 | SOFT_SCOPE_VIOLATION | aviso | tocó archivos que el plan no lista en "In scope" (relacionados, p. ej. un `types.ts` junto a lo listado) | Decide en la auditoría: ¿necesario o scope creep? |
 | HARD_SCOPE_VIOLATION | grave | cambió `.git/config`, un hook de git, `~/.gitconfig`, `~/.npmrc` o `settings.json` de Claude | PARA. No sigas con la auditoría normal: muéstrale a Reed qué archivo cambió y por qué |
-| NEW_COMMENT | aviso | comentarios o TODO nuevos en líneas `+` | Revisa cada uno; puede ser un falso positivo (por ejemplo `//` dentro de un string) |
-| WHITESPACE_ONLY | aviso | reformateo masivo de espacios | Si no está en el plan, pide repair |
+| NEW_COMMENT | aviso | comentarios o TODO nuevos en líneas `+`, descontando reemplazos existentes y comentarios conservados en movimientos declarados | Revisa cada uno; el detector es heurístico, no un parser completo del lenguaje |
+| WHITESPACE_ONLY | aviso | más del límite de cambios de espacios, que representan al menos el 80 % del diff del archivo | Si no está en el plan, pide repair; la indentación que acompaña cambios sustanciales no se marca por sí sola |
 
 `ok` exige: ninguna grave o violación **y** ninguna regresión de validación. Un aviso no falla solo; se decide en la auditoría.
+
+No declares PASS con `ok: false` ni descartes todas las alertas como problemas del parser. Corrige el plan/detector cuando haya evidencia de un falso positivo, o delega repair para una violación real, y vuelve a verificar. El historial rechaza un PASS acompañado por postflight fallido. Opus no corrige archivos del producto.
 
 La re-validación se compara con el baseline del preflight y separa: **regresiones** (pasaba y ahora falla), **preexistentes** (ya fallaba) y **fixed** (fallaba y ahora pasa). Solo las regresiones cuentan contra el worker.
 
@@ -52,7 +54,7 @@ Lee el diff por partes si es grande: tu cuota de Claude es el recurso más escas
 
 ## 3. Veredicto y `audit.md`
 
-- **PASS:** todos los pasos, sin regresiones, hallazgos resueltos o justificados.
+- **PASS:** todos los pasos, postflight OK, sin regresiones y avisos resueltos o justificados individualmente.
 - **REPAIR_REQUIRED:** lo que falta o sobra, con evidencia por punto.
 
 Guarda `runs/<runId>/audit.md`:
@@ -71,7 +73,7 @@ Points: (solo en REPAIR_REQUIRED)
 ## 4. Repair
 
 - Solo los puntos fallidos, cada uno con archivo, línea y qué falta o sobra; más los comandos que tienen que pasar. Sin rehacer el plan.
-- Va al **mismo worker** (harness, modelo y effort): `orch run ... --model <id> --effort <e> --repair puntos.json` (formato en SKILL.md).
+- Va a la **misma combinación aprobada** (harness, modelo y effort): `orch go ... --model <id> --effort <e> --repair puntos.json` (formato en SKILL.md). Cambiarla requiere otra elección explícita de Reed.
 - Máximo **2 ciclos**. Tras eso, detente y presenta a Reed el estado y las opciones; no abras un tercero por tu cuenta.
 - Cada repair vuelve a pasar por postflight y auditoría.
 
@@ -84,4 +86,4 @@ Nunca hagas nada automático y destructivo. Ante una violación grave:
 3. Ejecuta algo solo si Reed lo pide explícitamente, uno por uno.
 4. `git stash create` respalda los archivos trackeados. Los untracked previos se copian en `.orchestrator/snapshots/<id>/untracked/` hasta 5 MiB por archivo y 50 MiB en total. `untrackedSaved` lista los respaldados y `untrackedSkipped` los omitidos; estos últimos solo quedan registrados por hash y no tienen copia recuperable.
 
-Al cerrar, `orch unlock --yes` libera el lock. Si el lock quedó huérfano por un crash, `orch unlock` te dice quién lo tiene y si el worker sigue vivo; con un worker vivo no se libera sin `--force`, que solo usa Reed.
+Al cerrar, `orch close` libera el lock de la tarea. Si el lock quedó huérfano por un crash, `orch unlock` te dice quién lo tiene y si el worker sigue vivo; con un worker vivo no se libera sin `--force`, que solo usa Reed.

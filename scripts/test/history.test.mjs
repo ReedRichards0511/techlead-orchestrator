@@ -86,6 +86,17 @@ test('history keeps only valid worker counters and displays missing counters as 
   assert.equal(buildRunRecord({ status: { ...st, usage: { promptTokens: 100 } }, verdict: 'PASS' }).usage, undefined);
 });
 
+test('history preserves Codex and Antigravity counters with their verified source and partial flag', () => {
+  for (const [harness, source] of [['codex', 'codex-jsonl'], ['agy', 'agy-result']]) {
+    const st = status({ model: `${harness}/fake` });
+    st.meta.harness = harness;
+    st.usage = { source, totalTokens: 120, partial: true, privateField: 'secret' };
+    const record = buildRunRecord({ status: st, verdict: 'PASS', now: NOW });
+    assert.deepEqual(record.usage, { source, totalTokens: 120, partial: true });
+    assert.ok(!JSON.stringify(record).includes('secret'));
+  }
+});
+
 test('buildRunRecord counts scope and comment flags from the postflight', () => {
   const postflight = {
     violations: [
@@ -100,6 +111,11 @@ test('buildRunRecord counts scope and comment flags from the postflight', () => 
   assert.equal(r.scopeFlags, 2);
   assert.equal(r.commentFlags, 1);
   assert.doesNotMatch(JSON.stringify(r), /secret|code text/);
+});
+
+test('a failed deterministic postflight cannot be recorded as PASS', () => {
+  assert.throws(() => buildRunRecord({ status: status(), verdict: 'PASS', postflight: { ok: false, violations: [{ code: 'DELETED_OUT_OF_PLAN', severity: 'grave' }] } }), /postflight is NOT OK/);
+  assert.equal(buildRunRecord({ status: status(), verdict: 'REPAIR_REQUIRED', postflight: { ok: false } }).verdict, 'REPAIR_REQUIRED');
 });
 
 test('buildRunRecord needs a verdict for SUCCESS and VALIDATION_FAILURE', () => {

@@ -18,7 +18,7 @@ Lo renderiza el runner; tú no lo escribes. Resumen para que sepas qué esperar 
 1. Lee completo el plan en `PLAN_PATH` e inspecciona el repo antes de editar.
 2. Implementa **todo** el plan y **solo** el plan, en una ejecución, sin pedir confirmación.
 3. No rediseña ni cambia arquitectura, librerías, tooling ni dependencias (salvo que el plan lo diga).
-4. **NO_COMMENTS:** ningún comentario nuevo (`//`, `/* */`, JSDoc, docstrings, TODO, FIXME). No borra comentarios existentes por esta regla, salvo que su cambio los deje incorrectos. Si el plan exige documentación inline, se detiene con PLAN_CONTRADICTION.
+4. **NO_COMMENTS:** ningún comentario nuevo (`//`, `/* */`, JSDoc, docstrings, TODO, FIXME). No borra comentarios existentes por esta regla, salvo que su cambio los deje incorrectos. Si el plan pide un comentario nuevo, omite solo ese comentario, termina lo demás y lo informa en `errors`; no es PLAN_CONTRADICTION.
 5. **SCOPE:** sin mejoras no pedidas, refactors fuera del scope, formateo global ni archivos no relacionados.
 6. **CONTRADICTION:** si el plan contradice objetivamente al repo, se detiene y escribe `PLAN_CONTRADICTION` con toda la evidencia.
 7. **VALIDATION:** corre los comandos de "Validation" y distingue fallas preexistentes (baseline del packet) de las que introdujo.
@@ -60,6 +60,8 @@ Variantes (misma ruta de lanzamiento, mismas políticas):
 
 El runner valida el schema. Si falta o es inválido, cruza el exit code, el stdout/stderr y el diff para clasificar (UNKNOWN_FAILURE → `ask-reed` si no hay ninguna señal). Para Devin y agy, un exit 0 sin `result.json` no es éxito.
 
+El worker recibe el plan después de que Reed eligió worker/modelo/effort en la sesión del Tech Lead. No hace esa pregunta ni solicita confirmaciones de implementación. `orch run` exige `--model` y `--effort` explícitos en todas sus variantes.
+
 El modo `dangerous` evita solicitudes de aprobación de herramientas; no significa que falte un resultado final. El resumen solo informa "sin resultado final del worker" cuando `result.json` falta o es inválido.
 
 ## 4. Estados y fallback
@@ -80,11 +82,15 @@ El modo `dangerous` evita solicitudes de aprobación de herramientas; no signifi
 
 Los patrones de cuota, rate limit y modelo de Devin son genéricos hasta capturar el primer stderr real. Si aparece uno nuevo, regístralo en `findings` para afinar `classify.mjs`.
 
+`fallback` y `continuation` son acciones para el Tech Lead, no lanzamientos automáticos: si requieren cambiar worker, modelo o effort, recomienda alternativas y espera la elección de Reed. Un reintento o repair con la misma combinación aprobada puede continuar sin repetir esa pregunta.
+
 ## 5. Antes o durante el trabajo
+
+El Tech Lead no implementa ni hace movimientos mecánicos para desbloquearte. Toda corrección de código, tests, assets y docs la hace el worker. Movimientos/eliminaciones declarados en File operations se ejecutan con los comandos exactos del packet, respaldados y autorizados por el preflight; nunca con git mv, rm o scripts alternativos (`references/execution-policy.md`).
 
 Cada fallo de ejecución lleva una fase, según el diff frente al snapshot de la corrida:
 
-- **BEFORE_WORK** (sin diff): fallback directo al siguiente candidato (`--exclude`).
+- **BEFORE_WORK** (sin diff): recomienda otra combinación (`--exclude`) y espera la elección del usuario.
 - **DURING_WORK** (con diff): inspecciona `git status`, el diff y `result.json` (si existe) y arma un **continuation packet** con lo hecho, lo que falta, tests que pasaron y fallaron, y dónde continuar. Nunca reinicies a ciegas.
 
 ## 6. Layout de una corrida
@@ -93,8 +99,10 @@ Cada fallo de ejecución lleva una fase, según el diff frente al snapshot de la
 
 ```
 plans/<id>.md
+usage/<id>.json           inicio de medición y cierre de tokens de la tarea
 lock                      un solo escritor
 snapshots/<id>.json       snapshot de la tarea (HEAD, branch, stash, hashes, baseline)
+snapshots/<id>/file-operations.json   operaciones declaradas, respaldos y estado
 runs/<runId>/
   packet.md  result.json  snapshot.json  status.json  events.jsonl
   stdout.log  stderr.log  postflight.json  audit.md

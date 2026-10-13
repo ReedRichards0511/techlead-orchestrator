@@ -59,13 +59,14 @@ function assessCommand(command, ctx) {
   return { verdict: 'allow', reason: 'named in the plan and not destructive', segments };
 }
 
-export function assessBlockedCalls({ calls = [], planText = '', forbidden = [], repo = '' }) {
+export function assessBlockedCalls({ calls = [], planText = '', forbidden = [], repo = '', allowedFileCommands = [] }) {
   if (!calls.length) return { safe: false, calls: [], allowExec: [], reason: 'The rejected tool calls could not be inspected' };
   const ctx = { forbidden, repo, known: planCommands(planText) };
   const out = calls.map((c) => {
     if (c.tool !== 'exec' || typeof c.command !== 'string' || !c.command.trim()) {
       return { tool: c.tool, command: c.command ?? null, verdict: 'unknown', reason: `blocked tool "${c.tool}" is not a shell command`, segments: [] };
     }
+    if (allowedFileCommands.some(command => command.trim() === c.command.trim())) return { tool: c.tool, command: c.command, verdict: 'allow', reason: 'exact preflight-backed file-operation helper', segments: [c.command.trim()] };
     const a = assessCommand(c.command, ctx);
     return { tool: c.tool, command: c.command, verdict: a.verdict, reason: a.reason, segments: a.segments };
   });

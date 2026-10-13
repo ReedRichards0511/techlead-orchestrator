@@ -19,10 +19,14 @@ export async function main(args) {
     console.error('The worker of this lock is still running (live). Wait for it, or use --force to release anyway.');
     return 1;
   }
+  releaseRepoLock(repo, s);
+  return 0;
+}
+
+export function releaseRepoLock(repo, s) {
   releaseLock({ repo, planId: s.planId, force: true });
   for (const id of listRunDirs(repo)) {
     if (restoreDevinAllowlist({ repo, runDir: join(repo, '.orchestrator', 'runs', id) })) console.log(`Restored .devin/config.local.json left by run ${id}.`);
   }
   console.log('Lock released.');
-  return 0;
 }

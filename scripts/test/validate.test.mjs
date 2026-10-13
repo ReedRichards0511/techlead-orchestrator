@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { parsePlanValidation, parseScope, matchScope, runValidation, compareToBaseline } from '../lib/validate.mjs';
+import { parsePlanValidation, parseScope, matchScope, runValidation, compareToBaseline, validatePlan } from '../lib/validate.mjs';
 
 test('parsePlanValidation reads backtick-quoted commands', () => {
   const plan = '## Validation\n- Commands: `npm run typecheck`, `npm test`\n- Done when: green\n';
@@ -35,6 +35,30 @@ test('parseScope supports sub-bullets and stops at the next section', () => {
 
 test('parseScope without a Scope section yields empty lists', () => {
   assert.deepEqual(parseScope('# plan'), { inScope: [], outOfScope: [] });
+});
+
+test('Scope separates nested comma lists, expands braces and strips removal annotations without losing spaces', () => {
+  const plan = '## Scope\n- In scope:\n  - `src/a.ts`, src/b.ts\n  - src/components/{Card,Filter}/{index.ts,types.ts}\n  - src/old.tsx (eliminar)\n  - Mobile project/a.ts, docs/x.md\n';
+  const scope = parseScope(plan).inScope;
+  for (const path of ['src/a.ts', 'src/b.ts', 'src/components/Card/index.ts', 'src/components/Filter/types.ts', 'src/old.tsx', 'Mobile project/a.ts', 'docs/x.md']) assert.equal(matchScope(path, scope), true, path);
+  assert.equal(matchScope('src/other.ts', scope), false);
+});
+
+test('plan validation catches mandatory new comments before launching, while permitting existing comments', () => {
+  const base = '## Scope\n- In scope: src/\n## Validation\n- Commands: `node -v`\n## Steps\n';
+  assert.equal(validatePlan(base + '1. Add a new `// TODO(nav): detail` comment.').ok, false);
+  assert.equal(validatePlan(base + '1. Preservar el comentario existente de tachado.').ok, true);
+  assert.equal(validatePlan(base + '1. Create a new comments page and a TODO entity.').ok, true);
+});
+
+test('plan validation catches a quoted comment the worker would have to write, but not existing ones', () => {
+  const base = '## Scope\n- In scope: src/\n## Validation\n- Commands: `node -v`\n';
+  const steps = line => validatePlan(`${base}## Steps\n${line}`);
+  assert.equal(steps('- `ProductDetailContainer.tsx`: `// TODO(nav): carrito sin pantalla` junto a `noOp`.').ok, false);
+  assert.equal(steps('- `Buscador.tsx`: `{/* skeleton */}` encima de la grilla.').ok, false);
+  assert.equal(steps('12. actualizar el TODO a `// TODO(nav): conectar carrito`.').ok, true);
+  assert.equal(steps('- Conservar `// ponytail: ...` intacto.').ok, true);
+  assert.equal(validatePlan(`${base}## Current state (verified)\n- \`Productos.tsx:26\` \`// TODO(nav): conectar carrito\`\n## Steps\n1. Usar noOp.`).ok, true);
 });
 
 test('matchScope handles exact paths, directories and globs', () => {

@@ -390,6 +390,39 @@ test('removed comments are not flagged', async () => {
   assert.deepEqual(check(repo, s, planText('src/')).comments, []);
 });
 
+test('updating existing comments does not create a new-comment flag, but an additional comment does', async () => {
+  const repo = makeRepo({ 'src/m.js': '// TODO(nav): old route\nconst a = 1;\n' });
+  const s = await snap(repo, planText('src/'));
+  write(repo, 'src/m.js', '// TODO(nav): new route\nconst a = 1;\n');
+  assert.deepEqual(check(repo, s, planText('src/')).comments, []);
+  write(repo, 'src/m.js', '// TODO(nav): new route\nconst a = 1;\n// brand new\n');
+  assert.deepEqual(check(repo, s, planText('src/')).comments.map(c => c.line), [3]);
+});
+
+test('removing one comment does not hide a new comment in a different diff hunk', async () => {
+  const body = '// old comment\n' + Array.from({ length: 20 }, (_, i) => `const v${i} = ${i};`).join('\n') + '\n';
+  const repo = makeRepo({ 'src/m.js': body });
+  const s = await snap(repo, planText('src/'));
+  write(repo, 'src/m.js', body.replace('// old comment\n', '') + '// unrelated new comment\n');
+  assert.equal(check(repo, s, planText('src/')).comments.length, 1);
+});
+
+test('comment-like strings are ignored, but actual JSX comments are detected', async () => {
+  const repo = makeRepo({ 'src/m.tsx': 'const a = 1;\n' });
+  const s = await snap(repo, planText('src/'));
+  write(repo, 'src/m.tsx', 'const a = 1;\nconst text = "label // text";\nconst jsx = <View>{/* actual comment */}</View>;\n');
+  assert.deepEqual(check(repo, s, planText('src/')).comments.map(c => c.line), [3]);
+});
+
+test('indentation accompanying a substantive change is not treated as a formatting-only rewrite', async () => {
+  const body = Array.from({ length: 30 }, (_, i) => `const v${i} = ${i};`).join('\n') + '\n';
+  const repo = makeRepo({ 'src/m.js': body });
+  const s = await snap(repo, planText('src/'));
+  const changed = Array.from({ length: 30 }, (_, i) => `  const v${i} = ${i};`).join('\n') + '\n' + Array.from({ length: 40 }, (_, i) => `const newValue${i} = ${i};`).join('\n');
+  write(repo, 'src/m.js', changed);
+  assert.equal(codes(check(repo, s, planText('src/'))).includes('WHITESPACE_ONLY'), false);
+});
+
 test('comments in new untracked files are flagged too', async () => {
   const repo = makeRepo({ 'a.txt': 'x\n' });
   const s = await snap(repo, planText('src/'));

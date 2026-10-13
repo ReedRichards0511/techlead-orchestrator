@@ -1,6 +1,6 @@
 # techlead-orchestrator
 
-Skill global de Claude Code (`/orchestrator`). **Opus 5.5 actúa como Tech Lead**: entiende el requerimiento, escribe el plan, elige el worker y el effort, supervisa y audita el diff. La implementación la hacen workers de otros CLIs (Devin, Codex y Antigravity), sin API keys de pago, usando las suscripciones ya iniciadas en cada CLI.
+Skill global de Claude Code (`/orchestrator`). **Opus 5.5 actúa como Tech Lead**: entiende el requerimiento, escribe el plan, recomienda worker/modelo/effort, supervisa y audita el diff. **El usuario elige antes de ejecutar**: una recomendación y hasta tres alternativas de los modelos autorizados. La implementación la hacen workers de otros CLIs (Devin, Codex y Antigravity), sin API keys de pago, usando las suscripciones ya iniciadas en cada CLI.
 
 El runner (`scripts/orch.mjs`) es un único programa Node sin dependencias. No usa Python ni LLM para decidir nada: routing, cuotas, locks, snapshots, postflight y clasificación de errores son deterministas.
 
@@ -10,7 +10,7 @@ Es agnóstico al proyecto: toma del repo sus reglas, arquitectura y comandos de 
 
 - Node.js **>= 20** (para correr los tests, Node >= 21 por el glob de `node --test`).
 - Git.
-- Claude Code (CLI o Desktop, sesión **local**; en cloud/Cowork no puede lanzar workers).
+- Claude Code **>= 2.1.295** (CLI o Desktop, sesión **local**; requiere hooks con bloqueo ante fallos para proteger el rol del Tech Lead; en cloud/Cowork no puede lanzar workers).
 - Los CLIs de los workers que quieras usar, con sesión iniciada: `devin`, `codex` y `agy` (Antigravity). Los que falten simplemente no se ofrecen en el routing; `orch doctor` dice cuáles hay.
 - Probado con workers reales en **Windows 11**. En **macOS arm64**, suite automática con workers simulados y una implementación real de Devin / Sol Medium validada manualmente; quedan pendientes las pruebas reales de Codex y Antigravity en macOS.
 
@@ -33,10 +33,10 @@ No hay `npm install`. Después, en la carpeta de la skill:
 ```bash
 node scripts/orch.mjs doctor          # SO, CLIs, sesiones y versiones
 node scripts/orch.mjs models refresh  # descubre los modelos de cada CLI y crea el catálogo
-node scripts/orch.mjs quota           # dashboard de cuotas
+node scripts/orch.mjs quota           # diagnóstico opcional de cuotas
 ```
 
-El estado local (configuración, catálogo, cuotas, historial) se crea solo en `~/.claude/orchestrator/` y **no está en este repo**. La primera ejecución copia `config.defaults.json` a `~/.claude/orchestrator/config.json`; ahí puedes ajustar umbrales, reservas, timeouts y rutas absolutas de los CLIs si Claude Desktop no hereda tu `PATH`.
+La configuración, catálogo, cuotas e historial global se guardan en `~/.claude/orchestrator/` y **no están en este repo**. Planes, corridas y cierres de tokens se guardan en `.orchestrator/` del proyecto donde trabajas. La primera ejecución copia `config.defaults.json` a `~/.claude/orchestrator/config.json`; ahí puedes ajustar umbrales, reservas, timeouts y rutas absolutas de los CLIs si Claude Desktop no hereda tu `PATH`.
 
 Reinicia Claude Code para que aparezca `/orchestrator`.
 
@@ -60,21 +60,24 @@ La skill solo la invoca el usuario (`disable-model-invocation: true`). Abre la s
 /orchestrator implement <HU / bug / requerimiento>
 /orchestrator history
 /orchestrator bootstrap status
+/orchestrator usage report --task <id>
 ```
 
-`implement` sigue 15 pasos: doctor, plan en `.orchestrator/plans/`, clasificación, cuota, routing, preflight (lock + snapshot + baseline de validación), lanzamiento, espera, postflight, auditoría (máximo 2 ciclos de repair) y cierre. **Nunca hace commit.** El detalle está en `SKILL.md` y `references/`.
+`implement` registra el inicio del consumo y sigue este flujo: doctor, plan en `.orchestrator/plans/`, clasificación, recomendación, **pregunta interactiva y elección**, preflight (lock + snapshot + baseline de validación), lanzamiento, espera, postflight, auditoría (máximo 2 ciclos de repair) y cierre con tokens. La elección usa `AskUserQuestion` en Claude Code; si no está disponible, espera una respuesta en texto. Sin elección no toma el lock ni lanza workers. Las cuotas no se consultan en este flujo ni alteran el orden por porcentajes o reservas; el bootstrap tampoco alterna workers automáticamente. **Nunca hace commit.** El detalle está en `SKILL.md` y `references/`.
 
-El lanzamiento recibe el extracto de reglas con `--project-rules <archivo>` y carga automáticamente el baseline del preflight. El plan debe incluir `## Scope` con `- In scope:` y `## Validation` con `- Commands:`, ambos no vacíos; el runner rechaza planes que no pueda comprobar.
+El lanzamiento exige la combinación elegida con `--model <id> --effort <e>`, recibe el extracto de reglas con `--project-rules <archivo>` y carga automáticamente el baseline del preflight. Si esa combinación deja de estar disponible, falla sin sustituirla. El plan debe incluir `## Scope` con `- In scope:` y `## Validation` con `- Commands:`, ambos no vacíos; el runner rechaza planes que no pueda comprobar. El JSON de `route` ahora usa `recommended`, `options` y `question`, no `selected`/`fallback`.
+
+Antes de elegir worker, `orch check-plan --plan <ruta>` comprueba estructura, conflictos reconocibles y operaciones de archivos. `## File operations` declara movimientos/eliminaciones concretos: el preflight respalda sus fuentes y el worker ejecuta helpers exactos, temporalmente autorizados en Devin smart. Opus tiene hooks que bloquean edición directa y shell mutante sobre el producto mientras su tarea esté abierta; solo escribe planes, packets y auditorías. `orch go` hace preflight, lanzamiento, espera y postflight en una sola llamada en Bash background, sin polling del modelo; `orch close` libera el lock, registra el historial e imprime los tokens. La extracción de Figma (Haiku) y la auditoría (Opus con contexto limpio) van a subagentes (`references/subagents.md`). Consulta `references/execution-policy.md`.
 
 ## Reglas que impone el runner
 
 - Un solo escritor por working tree (lock atómico).
 - `PLAN_CONTRADICTION` nunca dispara fallback: vuelve a Opus.
 - Los workers no hacen commit ni agregan comentarios al código; el postflight lo comprueba.
-- Cuota desconocida nunca se trata como 100%. Nunca se usan los reset credits de Codex.
+- Los porcentajes de cuota son diagnóstico opcional. Los límites observados durante una corrida se conservan para proponer alternativas; cambiar de combinación requiere elección del usuario. Nunca se usan los reset credits de Codex.
 - No se guardan ni se muestran emails, tokens de acceso, API keys ni IDs de cuenta. `history.json` no contiene prompts, código ni rutas.
 
-`status` y `wait` muestran los tokens que Devin exporta por corrida; `history record` los guarda y `history` los muestra. Cache, prompt y salida se conservan como contadores separados, sin estimar costos. El consumo del arquitecto y de otros harnesses sigue sin medirse; los reintentos y repairs deben incluirse al resumir la tarea. El dashboard informa cuota disponible. Estos datos todavía no demuestran un porcentaje de ahorro: hace falta un baseline equivalente.
+`status` y `wait` muestran los contadores disponibles de cada harness; `history record` los guarda y `history` los muestra. Cada `implement` registra `orch usage start --task <id> --session "${CLAUDE_SESSION_ID}"` antes del análisis y cierra con `orch close` (o `orch usage report --task <id> --session "${CLAUDE_SESSION_ID}"`): una línea por modelo del arquitecto, de sus subagentes y por worker/modelo/effort, más el total medido, incluyendo reintentos y repairs. La caché se informa por separado sin sumarla dos veces. Datos faltantes se muestran como no disponibles y hacen parcial el total. El cierre se guarda localmente y excluye la respuesta final de Claude. No estima dinero ni ahorro; consulta `references/token-accounting.md` para fuentes y límites. El dashboard de cuotas sigue siendo opcional e independiente.
 
 ## Desarrollo y tests
 

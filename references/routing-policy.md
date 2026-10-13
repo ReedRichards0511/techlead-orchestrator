@@ -1,118 +1,69 @@
-# Política de routing
+# Recomendación y elección del worker
 
-Qué contiene: cómo clasificar una tarea, qué candidatos tiene cada clase, qué es un tier y cómo el router llega a la ROUTING DECISION. Léelo en los pasos 6 y 8 del flujo, o cuando una decisión te sorprenda.
+Léelo al clasificar la tarea y preparar las opciones. Opus analiza el proyecto y recomienda; Reed elige antes de ejecutar. El runner no lanza desde `route` ni elige implícitamente desde `run`.
 
-## Contenido
+## Clases
 
-1. Cómo elegir la clase
-2. Candidatos por clase
-3. Tiers
-4. Algoritmo
-5. Bootstrap
-6. Leer y corregir la decisión
+Clasifica por el riesgo y la extensión del cambio, no por el lenguaje o el nombre del proyecto:
 
-## 1. Cómo elegir la clase
-
-Elige la clase por **lo que exige razonar**, no por el tamaño del diff. Si dudas entre dos, sube a la mayor: un worker débil en una tarea difícil cuesta más repairs que un worker fuerte en una fácil.
-
-| Clase | Cuándo | Minutos estimados | Timeout (wall) |
+| Clase | Qué incluye | Duración estimada (min) | Timeout (min) |
 |---|---|---|---|
-| SMALL_FIX | 1–3 archivos, cambio puntual | 15 | 20 |
+| SMALL_FIX | Cambio pequeño y localizado | 15 | 20 |
 | BUG_SIMPLE | Causa conocida, fix localizado | 20 | 25 |
-| MECHANICAL_CHANGE | Renombres, patrón repetido, muchos archivos | 30 | 40 |
-| TEST_GENERATION | Tests sobre código existente | 30 | 40 |
-| REFACTOR | Reestructurar sin cambiar comportamiento | 45 | 60 |
-| MIGRATION | Versiones, APIs, esquemas | 60 | 90 |
-| FEATURE | Funcionalidad nueva con plan muy detallado | 60 | 75 |
-| CROSS_LAYER_FEATURE | Frontend, backend y datos, con razonamiento residual | 75 | 90 |
-| BUG_COMPLEX | Causa incierta, varias capas | 60 | 75 |
-| NATIVE_MOBILE | Android/iOS, Gradle, Xcode, módulos nativos de RN | 75 | 90 |
-| ARCHITECTURAL_IMPL | Implementa una arquitectura nueva que definiste tú | 90 | 120 |
+| MECHANICAL_CHANGE | Cambio repetitivo entre archivos | 30 | 40 |
+| TEST_GENERATION | Pruebas sobre código existente | 30 | 40 |
+| REFACTOR | Reestructuración sin cambiar comportamiento | 45 | 60 |
+| MIGRATION | Cambio de versión, esquema o API | 60 | 90 |
+| FEATURE | Funcionalidad con un plan definido | 60 | 75 |
+| CROSS_LAYER_FEATURE | Funcionalidad que cruza capas | 75 | 90 |
+| BUG_COMPLEX | Causa incierta o varias capas afectadas | 60 | 75 |
+| NATIVE_MOBILE | Código y herramientas nativas Android/iOS | 75 | 90 |
+| ARCHITECTURAL_IMPL | Implementación de una arquitectura definida | 90 | 120 |
 
-Los minutos estimados deciden si un reset de cuota llega "antes de que termine la tarea". Los timeouts salen de `config.json → timeouts` (más `idleMinutes: 15`).
+El effort mínimo suficiente está en `effort-policy.md`. No cambies la clase para conseguir un worker preferido.
 
-## 2. Candidatos por clase
+Los efforts de la tabla son la base. Si el alcance exige otro nivel permitido, Opus lo justifica y lo refleja en las opciones de la pregunta antes de pedir la elección. El lanzamiento conserva el effort que Reed eligió, incluso cuando difiere del nivel base de la clase.
 
-Orden de preferencia por calidad. ⇄ participa del bootstrap (sección 5).
+## Conjunto autorizado
 
-| Clase | 1ª | 2ª | 3ª | 4ª | 5ª |
-|---|---|---|---|---|---|
-| SMALL_FIX · BUG_SIMPLE | Devin SWE-2 Medium | Devin DeepSeek High | Devin Haiku 5.5 Medium | agy Gemini 3.8 Flash High | Codex Luna High |
-| MECHANICAL_CHANGE · TEST_GENERATION | Devin SWE-2 High | Devin DeepSeek Max | agy Gemini High | Codex Luna Max | — |
-| REFACTOR · MIGRATION · FEATURE | Devin Sol Medium ⇄ | Devin SWE-2 High ⇄ | Codex Sol Medium | — | — |
-| CROSS_LAYER_FEATURE | Devin Sol Medium | Devin Sonnet 5.5 High | Codex Sol Medium | — | — |
-| BUG_COMPLEX | Devin Sol High | Devin Sonnet 5.5 High | Codex Sol High | — | — |
-| NATIVE_MOBILE | Devin Sol High | Codex Sol High | Devin Sonnet 5.5 High | — | — |
-| ARCHITECTURAL_IMPL | Devin Sol High | Codex Sol High | — | — | — |
+Devin: SWE-2, GPT-6.1 Sol, Sonnet 5.5, Haiku 5.5, DeepSeek V4.1 Flash. Codex: GPT-6.1 Sol, GPT-6 Luna. Antigravity: Gemini 3.8 Flash. Los modelos y efforts deben estar habilitados y disponibles en el catálogo local; una nueva familia descubierta no se habilita automáticamente. Opus 5.5 permanece como Tech Lead en Claude Code.
 
-Por qué: el implementador general es **Devin / GPT-6.1 Sol / Medium** (mejor evidencia de disciplina de scope). SWE-2 es el especialista de tareas chicas y mecánicas, donde la diferencia de calidad no se nota y sus pocos pasos ayudan. Los benchmarks son casi todos auto-reportados, por eso el historial propio manda a la larga.
+## Orden base por clase
 
-Los modelos fuera de esta tabla (Fusion, Luna en Devin, Gemini en Devin, Kimi, Opus en Devin) están fuera del pool. Opus solo corre en Claude Code.
+Son recomendaciones iniciales, no garantías de calidad. El plan y el historial aportan la evidencia; cada opción incluye un motivo breve. Ofrece una recomendación y otras tres opciones cuando hay cuatro candidatos válidos. No inventes ni dupliques modelos si hay menos.
 
-## 3. Tiers
+| Clase | Recomendado | Alternativas |
+|---|---|---|
+| SMALL_FIX · BUG_SIMPLE | Devin SWE-2 Medium | Devin DeepSeek High; Devin Haiku Medium; agy Gemini High; Codex Luna High |
+| MECHANICAL_CHANGE · TEST_GENERATION | Devin SWE-2 High | Devin DeepSeek Max; agy Gemini High; Codex Luna Max |
+| REFACTOR · MIGRATION · FEATURE | Devin Sol Medium | Devin SWE-2 High; Devin Sonnet Medium; Codex Sol Medium |
+| CROSS_LAYER_FEATURE | Devin Sol Medium | Devin Sonnet High; Codex Sol Medium; Devin SWE-2 High |
+| BUG_COMPLEX | Devin Sol High | Devin Sonnet High; Codex Sol High; Devin SWE-2 High |
+| NATIVE_MOBILE · ARCHITECTURAL_IMPL | Devin Sol High | Codex Sol High; Devin Sonnet High; Devin SWE-2 High |
 
-Un **tier** agrupa candidatos de calidad equivalente para esa clase. Solo dentro del mismo tier se aplica la preferencia de pago: **Devin → Antigravity → Codex**. El tier más bajo (número menor) siempre va primero aunque su pago sea menos preferido.
+SWE-2 es la alternativa especializada para trabajo acotado o mecánico; en una tarea compleja debe llevar un plan especialmente preciso. Si el repo o la tarea exceden su contexto, exclúyelo antes de ofrecer opciones. No subas effort para compensar un plan incompleto.
 
-| Clase | Tier 1 | Tier 2 | Tier 3 |
-|---|---|---|---|
-| SMALL_FIX · BUG_SIMPLE | SWE-2 Medium | DeepSeek High, Haiku Medium | agy Gemini High, Codex Luna High |
-| MECHANICAL_CHANGE · TEST_GENERATION | SWE-2 High | DeepSeek Max | agy Gemini High, Codex Luna Max |
-| REFACTOR · MIGRATION · FEATURE | Devin Sol Medium, Devin SWE-2 High | Codex Sol Medium | — |
-| CROSS_LAYER_FEATURE | Devin Sol Medium | Sonnet High, Codex Sol Medium | — |
-| BUG_COMPLEX | Devin Sol High | Sonnet High, Codex Sol High | — |
-| NATIVE_MOBILE | Devin Sol High, Codex Sol High | Sonnet High | — |
-| ARCHITECTURAL_IMPL | Devin Sol High, Codex Sol High | — | — |
+El runner ordena por tier de adecuación para la clase y, dentro del mismo tier, por la preferencia existente Devin → Antigravity → Codex. Los porcentajes de cuota, reservas semanales y estados HEALTHY/CRITICAL/PROTECTED no afectan ese orden. La cuota se consulta solo si Reed pide el diagnóstico.
 
-Ejemplo: en NATIVE_MOBILE, Devin Sol High y Codex Sol High son el mismo tier, así que gana Devin por pago; Sonnet queda un tier abajo aunque sea Devin.
+## Historial
 
-## 4. Algoritmo
+Un candidato con al menos cinco corridas en la clase baja una posición dentro de su tier si su tasa de problemas supera en 25 puntos porcentuales a la siguiente opción, que debe tener al menos una corrida. Repairs y VALIDATION_FAILURE se cuentan una vez por corrida. La salida explica el ajuste.
 
-1. **Filtro duro.** Un candidato sigue solo si: está en el catálogo con `enabled:true`, `doctor` encontró su CLI, el effort está en `allowedEfforts` y la cuota no está EXHAUSTED. Lo descartado aparece en `Excluded` con el motivo.
-2. **Orden base:** la tabla de la sección 2.
-3. **Pago:** dentro de un tier, Devin → agy → Codex.
-4. **Cuota.**
-   - PROTECTED (bajo la reserva semanal) → va al final de su tier, salvo que no haya alternativa en el tier o Reed lo autorice (`--allow-protected <provider>`).
-   - CRITICAL con reset a más de 24 h → baja un tier.
-   - Si el reset llega antes de la duración estimada de la clase, no se penaliza.
-   - UNKNOWN no penaliza ni premia; la decisión lo marca como "quota unknown".
-5. **Bootstrap** (sección 5).
-6. **Historial.** Fuera del bootstrap, un candidato con 5 o más corridas en esa clase baja una posición si su tasa de `repairRequired + validationFailures` (corridas con repair o con VALIDATION_FAILURE, contadas una vez) supera en 25 puntos o más a la del siguiente de su tier (que debe tener al menos una corrida). La decisión lo explica.
-7. **Salida:** el primero, y el **fallback por error de ejecución** (el siguiente candidato válido, que se recalcula en el momento del fallo con `--exclude`). PLAN_CONTRADICTION siempre muestra `fallback: NONE → back to Opus`.
+El bootstrap ya no alterna Sol/SWE-2 automáticamente, incluso con configuraciones antiguas que lo tenían habilitado. `bootstrap status/end/reset` se conserva para analizar datos y preferencias explícitas. Una promoción aprobada por Reed puede cambiar la recomendación dentro de su tier; nunca sustituye la elección por tarea.
 
-Límites que el router **no** aplica solo y que debes cubrir tú con `--model`/`--effort`:
-- Si la tarea o el repo exceden los 262K de contexto de SWE-2, fuerza Sol (1M): `--model devin/gpt-6-1-sol --effort medium`.
-- SWE-2 `max` para MECHANICAL de más de 50 archivos solo si el historial muestra que rinde mejor.
+## Pregunta después del plan
 
-## 5. Bootstrap
+1. `orch route --class <C> --json` devuelve `recommended`, `options`, `requiresSelection: true`, exclusiones y el objeto `question` listo para `AskUserQuestion`.
+2. Opus explica por qué la primera opción encaja con el plan y usa ese objeto como input de **`AskUserQuestion`** en la sesión principal. Una pregunta, selección única, cuatro opciones como máximo. Con un candidato se puede elegirlo o "No ejecutar"; sin candidatos no hay payload de pregunta y se explican las exclusiones.
+3. Espera la respuesta. Una opción preseleccionada, silencio, Skip o respuesta vacía no permiten ejecutar. Si la herramienta no está disponible, pregunta en texto y espera. Si la combinación ya fue elegida explícitamente por Reed para esta misma tarea, respétala.
+4. Resuelve la opción al `id` y `effort` exactos; una respuesta libre también se valida contra el catálogo. Registra la elección en el plan. Solo entonces lanza en background con `orch go --plan <ruta> --class <C> --model <id> --effort <e> --project-rules <extracto>` (hace el preflight en el primer lanzamiento).
 
-Objetivo: decidir con datos de los repos de Reed si SWE-2 High puede reemplazar a Sol Medium en REFACTOR, MIGRATION y FEATURE.
+La herramienta de pregunta la invoca Claude Code; imprimir el JSON en el terminal no abre por sí solo la UI. Es el flujo documentado de [AskUserQuestion](https://code.claude.com/docs/en/agent-sdk/user-input#handle-clarifying-questions).
 
-- Dura 10 corridas por clase (`bootstrap.runsPerClass`), alternando Devin Sol Medium y Devin SWE-2 High; el router elige el que tenga **menos corridas** en la clase (empate: Sol).
-- Una tarea cuenta una sola vez: `history record` fusiona las corridas del mismo plan y el mismo `modelo@effort` (reintento por allowlist, repairs) en un registro, con el estado de la última, `repairs` máximo, duración sumada y `permissionRetry`. Guarda un hash del plan, nunca su ruta. Registrar dos veces el mismo runId es idempotente.
-- No cuentan las corridas que terminan en PLAN_CONTRADICTION, EXECUTION_FAILURE, QUOTA_EXHAUSTED, RATE_LIMITED, TIMEOUT, MODEL_UNAVAILABLE, PROVIDER_UNAVAILABLE o PERMISSION_FAILURE: no miden calidad del modelo.
-- Métricas al terminar: PASS sin repair, repairs promedio, flags de scope y de comentarios, VALIDATION_FAILURE y duración.
-- Si SWE-2 iguala o supera a Sol en PASS sin repair y no tiene más flags de scope, sube a 1ª opción. Si no, Sol sigue 1ª. **Avisa a Reed antes de cambiar el orden** (`bootstrap.askBeforeReorder`).
-- Un repair siempre lo hace el mismo worker, y se cuenta para el modelo de la corrida original: registra **solo la corrida original** con `orch history record <runId> --verdict <V> --repairs <N>` (N = ciclos de repair que necesitó), no las corridas de repair.
-- `orch bootstrap status [--class C]` muestra las métricas y la recomendación (`IN_PROGRESS`, `PROMOTE_SWE2`, `KEEP_SOL`, `INSUFFICIENT_DATA`). Nada se reordena solo: con `PROMOTE_SWE2`, preséntale las métricas a Reed y, **solo si confirma**, ejecuta `orch bootstrap end --class <C> --promote devin/swe-2@high`; desde ahí el router pone a SWE-2 primero dentro de su tier. `orch bootstrap end --class <C>` sin `--promote` cierra el bootstrap sin cambiar el orden.
-- `orch bootstrap reset --class <C>` reinicia el conteo desde ese momento y quita cualquier promoción; los agregados del historial se conservan.
-- Historial: `history.json` guarda por corrida solo clase, modelo@effort, estado, veredicto, repairs, duración, flags y fecha. Nunca prompts, código, rutas ni secretos. Las corridas que nunca arrancaron (QUOTA_EXHAUSTED, RATE_LIMITED, MODEL_UNAVAILABLE, PROVIDER_UNAVAILABLE) quedan registradas pero no entran en los agregados.
+## Fallos y nuevas elecciones
 
-## 6. Leer y corregir la decisión
-
-Formato fijo (se muestra siempre antes de lanzar):
-
-```
-ROUTING DECISION
-Task class: <clase>
-Selected:   <Harness> / <Modelo> / <Effort>
-Reason:     <por qué>
-Quota:      <salud por ventana y fuente>
-History:    <corridas en la clase>
-Fallback if execution failure: <siguiente candidato>
-PLAN_CONTRADICTION fallback: NONE → back to Opus
-```
-
-- `orch route --class <C> --explain` agrega los candidatos ordenados y los excluidos. Úsalo cuando la elección no sea la que esperabas.
-- Para forzar un modelo: `orch run ... --model <id> --effort <e>`; valida contra el catálogo y rechaza modelos deshabilitados o efforts no permitidos.
-- Para el fallback tras un fallo: repite `orch run` con `--exclude <id>@<effort>` (lista separada por comas).
-- Si el candidato elegido tiene cuota UNKNOWN, dilo en tu mensaje a Reed.
+- Un repair, reintento o continuation con la misma combinación aprobada puede seguir sin repetir la pregunta. Si cambia worker, modelo o effort, muestra opciones y espera otra elección.
+- Un límite de cuota observado se registra con `orch quota exhausted <provider>`. Solo un marcador reactivo no caducado excluye temporalmente al provider (1 h); no se consulta su porcentaje. `--exclude <id>@<effort>` permite excluir un candidato concreto tras un fallo.
+- Antes de escribir: propone alternativas. Si ya hay cambios: prepara continuation con lo hecho y lo pendiente. Nunca reinicies a ciegas.
+- PLAN_CONTRADICTION vuelve a Opus para corregir el plan, sin proponer otro worker como solución a un plan incorrecto.
+- Si la combinación elegida queda deshabilitada o no está disponible, `run` falla y no la sustituye.

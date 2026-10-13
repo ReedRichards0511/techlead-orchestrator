@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -90,9 +90,43 @@ test('run without --plan or --class explains usage', () => {
 
 test('run with a missing plan fails before launching anything', () => {
   const repo = mkdtempSync(join(tmpdir(), 'orch-crr-'));
-  const r = orchRun(['run', '--plan', join(repo, 'ghost.md'), '--class', 'SMALL_FIX', '--repo', repo]);
+  const r = orchRun(['run', '--plan', join(repo, 'ghost.md'), '--class', 'SMALL_FIX', '--repo', repo, '--model', 'devin/swe-2', '--effort', 'medium']);
   assert.notEqual(r.status, 0);
   assert.match(r.stderr, /Plan not found|catalog/i);
+});
+
+test('run requires explicit model and effort before creating worker state or selecting automatically', () => {
+  const repo = repoWithRun({ state: 'exited' });
+  const base = ['run', '--plan', join(repo, '.orchestrator', 'plans', 'p1.md'), '--class', 'FEATURE', '--repo', repo];
+  for (const selection of [[], ['--model', 'devin/swe-2'], ['--effort', 'high'], ['--model', '--effort', 'high']]) {
+    const r = orchRun([...base, ...selection]);
+    assert.equal(r.status, 2, r.stderr);
+    assert.match(r.stderr, /explicit.*model.*effort|user.*selection/i);
+    assert.deepEqual(readdirSync(join(repo, '.orchestrator', 'runs')), ['r1']);
+    assert.equal(existsSync(join(repo, '.orchestrator', 'lock')), false);
+  }
+});
+
+test('run preserves a chosen alternative and refuses a disabled choice without substitution', () => {
+  const repo = repoWithRun({ state: 'exited' });
+  const plan = join(repo, '.orchestrator', 'plans', 'p1.md');
+  writeFileSync(plan, '# Plan p1\n## Scope\n- In scope: a.txt\n## Validation\n- Commands: `node -v`\n');
+  const models = [
+    { id: 'devin/gpt-6-1-sol', harness: 'devin', slugTemplate: 'gpt-6-1-sol-{effort}', efforts: ['medium'], allowedEfforts: ['medium'], enabled: true },
+    { id: 'codex/gpt-6.1-sol', harness: 'codex', slugTemplate: 'gpt-6.1-sol', efforts: ['medium'], allowedEfforts: ['medium'], enabled: true },
+  ];
+  writeFileSync(join(state, 'catalog.json'), JSON.stringify({ models }));
+  const args = ['run', '--plan', plan, '--class', 'FEATURE', '--repo', repo, '--model', 'codex/gpt-6.1-sol', '--effort', 'medium'];
+  const chosen = orchRun(args);
+  assert.equal(chosen.status, 1);
+  assert.match(chosen.stderr, /real worker codex.*ORCH_FORBID_REAL_WORKERS/);
+  const before = readdirSync(join(repo, '.orchestrator', 'runs'));
+  models[1].enabled = false;
+  writeFileSync(join(state, 'catalog.json'), JSON.stringify({ models }));
+  const disabled = orchRun(args);
+  assert.equal(disabled.status, 1);
+  assert.match(disabled.stderr, /disabled/);
+  assert.deepEqual(readdirSync(join(repo, '.orchestrator', 'runs')), before);
 });
 
 test('run validates the model, harness and effort against the catalog', real, () => {

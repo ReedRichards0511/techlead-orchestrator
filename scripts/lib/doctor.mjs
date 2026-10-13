@@ -1,7 +1,8 @@
 import { arch, platform, release } from 'node:os';
 import { resolveExecutable } from './platform.mjs';
 
-export const VERIFIED_VERSIONS = { claude: '2.1.292', devin: '3000.11.3', codex: '0.160.0', agy: '1.3.3' };
+export const VERIFIED_VERSIONS = { claude: '2.1.296', devin: '3000.11.3', codex: '0.160.0', agy: '1.3.3' };
+export const ROLE_GUARD_MIN_CLAUDE = '2.1.295';
 
 const AUTH_COMMANDS = {
   claude: ['auth', 'status'],
@@ -69,9 +70,12 @@ export async function runDoctor({ run, paths, env = process.env, catalog = null,
   const session = { kind: sessionKind(env) };
 
   const age = catalog?.generatedAt ? Math.floor((now - new Date(catalog.generatedAt)) / 86400000) : null;
+  const versionParts = (clis.claude.version ?? '').split('.').map(Number);
+  const roleGuard = { available: versionParts.length === 3 && (versionParts[0] > 2 || (versionParts[0] === 2 && (versionParts[1] > 1 || (versionParts[1] === 1 && versionParts[2] >= 295)))), minimumClaude: ROLE_GUARD_MIN_CLAUDE };
+  if (!roleGuard.available) warnings.push(`Claude Code >= ${ROLE_GUARD_MIN_CLAUDE} is required for the Tech Lead role guard with failure blocking`);
 
   const ok = session.kind !== 'cloud' && git.status === 0 && nodeMajor >= 20
-    && clis.claude.found && clis.claude.auth === 'ok' && Object.values(workers).some(Boolean);
+    && clis.claude.found && clis.claude.auth === 'ok' && roleGuard.available && Object.values(workers).some(Boolean);
 
   return {
     ok,
@@ -81,6 +85,7 @@ export async function runDoctor({ run, paths, env = process.env, catalog = null,
     session,
     clis,
     workers,
+    roleGuard,
     catalog: catalog
       ? { present: true, ageDays: age, models: catalog.models?.length ?? 0 }
       : { present: false, ageDays: null, models: 0 },

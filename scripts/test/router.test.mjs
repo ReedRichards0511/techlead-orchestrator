@@ -3,279 +3,157 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { route, formatDecision, countBootstrapRuns, CLASSES } from '../lib/router.mjs';
-import { buildCatalog, parseDevinModels, parseCodexModels, parseAgyModels, setEnabled } from '../lib/catalog.mjs';
-import { buildQuota, unknownQuota, windowFromUsed, windowFromRemaining } from '../lib/quota/normalize.mjs';
+import * as routing from '../lib/router.mjs';
+import { buildCatalog, parseDevinModels, parseCodexModels, parseAgyModels, setEnabled, POOL } from '../lib/catalog.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const fx = (f) => readFileSync(join(here, 'fixtures', f), 'utf8');
+const fx = f => readFileSync(join(here, 'fixtures', f), 'utf8');
 const config = JSON.parse(readFileSync(join(here, '..', '..', 'config.defaults.json'), 'utf8'));
-const now = new Date('2026-10-12T12:00:00Z');
-const inSec = (s) => Math.floor(now.getTime() / 1000) + s;
-
-const discovered = [
+const catalog = buildCatalog({ discovered: [
   ...parseDevinModels(JSON.parse(fx('devin-models.json'))),
   ...parseCodexModels(JSON.parse(fx('codex-models.json'))),
   ...parseAgyModels(fx('agy-models.txt')),
-];
-const catalog = buildCatalog({ discovered, previous: null, now });
+], previous: null });
+const base = (over = {}) => ({ klass: 'CROSS_LAYER_FEATURE', catalog, config, quotas: {}, ...over });
+const key = c => `${c.id}@${c.effort}`;
+const recommend = over => routing.route(base(over));
 
-function q(provider, { short, daily, weekly, shortReset = 3600, weeklyReset = 86400, source = 'official' }) {
-  const windows = {};
-  if (short !== undefined) windows.short = windowFromRemaining(short, inSec(shortReset), now);
-  if (daily !== undefined) windows.daily = windowFromRemaining(daily, inSec(shortReset), now);
-  if (weekly !== undefined) windows.weekly = windowFromRemaining(weekly, inSec(weeklyReset), now);
-  return buildQuota({ provider, source, retrievedAt: now, windows, config, now });
-}
-
-const healthy = () => ({
-  devin: q('devin', { daily: 96, weekly: 91, source: 'unofficial' }),
-  codex: q('codex', { short: 95, weekly: 90 }),
-  antigravity: unknownQuota('antigravity'),
-  claude: unknownQuota('claude'),
+test('unknown classes are rejected and known classes retain their estimated durations', () => {
+  assert.throws(() => recommend({ klass: 'NOPE' }), /class/i);
+  assert.equal(routing.CLASSES.SMALL_FIX.estimatedMinutes, 15);
+  assert.equal(routing.CLASSES.ARCHITECTURAL_IMPL.estimatedMinutes, 90);
 });
 
-const noBootstrap = { counts: {}, ended: {} };
-const base = (over = {}) => ({ klass: 'CROSS_LAYER_FEATURE', catalog, quotas: healthy(), config, bootstrap: noBootstrap, history: {}, ...over });
-const sel = (d) => `${d.selected.id}@${d.selected.effort}`;
-
-test('every class has an estimated duration from the plan', () => {
-  assert.equal(CLASSES.SMALL_FIX.estimatedMinutes, 15);
-  assert.equal(CLASSES.ARCHITECTURAL_IMPL.estimatedMinutes, 90);
-  assert.equal(Object.keys(CLASSES).length, 11);
+test('every class offers one recommendation and three distinct approved alternatives', () => {
+  const approved = new Set(POOL.map(p => p.id));
+  for (const klass of Object.keys(routing.CLASSES)) {
+    const d = recommend({ klass });
+    assert.equal(d.requiresSelection, true);
+    assert.equal(d.options.length, 4, klass);
+    assert.equal(new Set(d.options.map(c => c.id)).size, 4);
+    assert.deepEqual(d.recommended, d.options[0]);
+    assert.equal(d.planContradictionFallback, 'NONE');
+    for (const c of d.options) {
+      assert.ok(approved.has(c.id));
+      assert.ok(catalog.models.find(m => m.id === c.id).allowedEfforts.includes(c.effort));
+      assert.ok(c.reason.length > 0);
+    }
+  }
 });
 
-test('unknown class throws', () => {
-  assert.throws(() => route(base({ klass: 'NOPE' })), /class/i);
+test('recommendations use task-specific model and effort without choosing a worker to execute', () => {
+  assert.equal(key(recommend().recommended), 'devin/gpt-6-1-sol@medium');
+  assert.equal(key(recommend({ klass: 'SMALL_FIX' }).recommended), 'devin/swe-2@medium');
+  assert.equal(key(recommend({ klass: 'MECHANICAL_CHANGE' }).recommended), 'devin/swe-2@high');
+  assert.equal(key(recommend({ klass: 'NATIVE_MOBILE' }).recommended), 'devin/gpt-6-1-sol@high');
+  assert.equal(recommend().selected, undefined);
 });
 
-test('cross-layer feature picks Devin Sol Medium with Sonnet High as fallback', () => {
-  const d = route(base());
-  assert.equal(sel(d), 'devin/gpt-6-1-sol@medium');
-  assert.equal(`${d.fallback.id}@${d.fallback.effort}`, 'devin/claude-sonnet-5-5@high');
-  assert.equal(d.planContradictionFallback, 'NONE');
+test('quota percentages, reserves and legacy bootstrap counts cannot change recommendations', () => {
+  const normal = recommend({ klass: 'FEATURE' });
+  const legacy = recommend({ klass: 'FEATURE',
+    quotas: { devin: { health: 'EXHAUSTED' }, codex: { health: 'PROTECTED' } },
+    bootstrap: { counts: { FEATURE: { 'devin/gpt-6-1-sol@medium': 9, 'devin/swe-2@high': 0 } }, ended: {} },
+  });
+  assert.deepEqual(legacy.options, normal.options);
+  assert.doesNotMatch(legacy.reason, /Bootstrap|quota|reserve/i);
 });
 
-test('Devin 96/91 beats Codex 95/28 for native mobile', () => {
-  const quotas = { ...healthy(), codex: q('codex', { short: 95, weekly: 28, weeklyReset: 4 * 86400 }) };
-  const d = route(base({ klass: 'NATIVE_MOBILE', quotas }));
-  assert.equal(sel(d), 'devin/gpt-6-1-sol@high');
-  assert.equal(`${d.fallback.id}@${d.fallback.effort}`, 'codex/gpt-6.1-sol@high');
+test('only providers with a reported execution-time limit are excluded', () => {
+  const d = recommend({ klass: 'NATIVE_MOBILE', exhaustedProviders: ['devin'] });
+  assert.equal(key(d.recommended), 'codex/gpt-6.1-sol@high');
+  assert.ok(d.options.every(c => c.harness !== 'devin'));
+  assert.ok(d.excluded.some(c => c.id === 'devin/gpt-6-1-sol' && /reported.*limit/i.test(c.reason)));
 });
 
-test('a weaker candidate with plenty of quota does not win', () => {
-  const quotas = { ...healthy(), devin: q('devin', { daily: 22, weekly: 24, source: 'unofficial' }), codex: q('codex', { short: 100, weekly: 100 }) };
-  const d = route(base({ klass: 'SMALL_FIX', quotas }));
-  assert.equal(sel(d), 'devin/swe-2@medium');
+test('disabled models, invalid efforts and unavailable CLIs cannot be offered', () => {
+  const cat = setEnabled(setEnabled(catalog, 'devin/gpt-6-1-sol', true, ['low']), 'devin/claude-sonnet-5-5', false);
+  const d = recommend({ catalog: cat, workers: { devin: true, codex: false, agy: false } });
+  assert.ok(d.excluded.some(c => /effort/i.test(c.reason)));
+  assert.ok(d.excluded.some(c => /disabled/i.test(c.reason)));
+  assert.ok(d.excluded.some(c => /CLI unavailable/i.test(c.reason)));
+  assert.equal(d.options.length, 1);
+  assert.equal(d.options[0].id, 'devin/swe-2');
 });
 
-test('PROTECTED drops a provider to the end of its tier unless authorized', () => {
-  const quotas = { ...healthy(), antigravity: q('antigravity', { weekly: 5, source: 'official' }) };
-  const noDevin = { devin: false, codex: true, agy: true };
-  const d = route(base({ klass: 'SMALL_FIX', quotas, workers: noDevin }));
-  assert.equal(sel(d), 'codex/gpt-6-luna@high');
-  const allowed = route(base({ klass: 'SMALL_FIX', quotas, workers: noDevin, allowProtected: ['antigravity'] }));
-  assert.equal(sel(allowed), 'agy/gemini-3.8-flash@high');
+test('fewer available candidates produce fewer options rather than invented models', () => {
+  const d = recommend({ workers: { devin: false, codex: true, agy: false } });
+  assert.equal(d.options.length, 1);
+  assert.equal(d.recommended.id, 'codex/gpt-6.1-sol');
+  const none = recommend({ workers: { devin: false, codex: false, agy: false } });
+  assert.equal(none.recommended, null);
+  assert.deepEqual(none.options, []);
+  assert.ok(none.excluded.length >= 4);
+  assert.equal(routing.workerQuestion(none), null);
 });
 
-test('a PROTECTED provider with no alternative is still selected and flagged', () => {
-  const quotas = { ...healthy(), devin: q('devin', { daily: 0, weekly: 0, source: 'unofficial' }), codex: q('codex', { short: 50, weekly: 15 }) };
-  const d = route(base({ klass: 'NATIVE_MOBILE', quotas }));
-  assert.equal(sel(d), 'codex/gpt-6.1-sol@high');
-  assert.ok(d.notes.some((n) => /protected/i.test(n)));
+test('excluding a failed tuple offers alternatives for another user choice', () => {
+  const first = recommend();
+  const next = recommend({ exclude: [key(first.recommended)] });
+  assert.deepEqual(next.recommended, first.options[1]);
+  assert.equal(next.requiresSelection, true);
 });
 
-test('UNKNOWN quota is neutral and flagged, never treated as 100%', () => {
-  const d = route(base({ klass: 'SMALL_FIX', workers: { devin: false, codex: true, agy: true } }));
-  assert.equal(sel(d), 'agy/gemini-3.8-flash@high');
-  assert.deepEqual(d.quotaUnknown, ['antigravity']);
-  assert.match(formatDecision(d, { config }), /quota unknown/);
+test('the interactive question exposes exactly the available tuples with a single selection', () => {
+  const d = recommend({ klass: 'FEATURE' });
+  const payload = routing.workerQuestion(d);
+  assert.equal(payload.questions.length, 1);
+  const q = payload.questions[0];
+  assert.equal(q.multiSelect, false);
+  assert.ok(q.header.length <= 12);
+  assert.equal(q.options.length, 4);
+  assert.match(q.options[0].label, /Recomendado/);
+  assert.ok(q.options[0].description.includes(d.reason));
+  assert.equal(new Set(q.options.map(o => o.label)).size, 4);
+  for (const [i, option] of q.options.entries()) {
+    assert.ok(option.label.includes(d.options[i].displayName));
+    assert.ok(option.description.length > 0);
+  }
 });
 
-test('CRITICAL with a far reset drops one tier', () => {
-  const quotas = { ...healthy(), devin: q('devin', { daily: 5, weekly: 5, weeklyReset: 3 * 86400, shortReset: 3 * 86400, source: 'unofficial' }) };
-  const d = route(base({ klass: 'NATIVE_MOBILE', quotas }));
-  assert.equal(sel(d), 'codex/gpt-6.1-sol@high');
+test('a single candidate still requires a decision and can be declined', () => {
+  const d = recommend({ workers: { devin: false, codex: true, agy: false } });
+  const q = routing.workerQuestion(d).questions[0];
+  assert.equal(q.options.length, 2);
+  assert.match(q.options[1].label, /No ejecutar/);
+  assert.equal(d.requiresSelection, true);
 });
 
-test('CRITICAL that resets before the task would end is not penalized', () => {
-  const quotas = { ...healthy(), devin: q('devin', { daily: 5, weekly: 80, shortReset: 600, source: 'unofficial' }) };
-  const d = route(base({ klass: 'NATIVE_MOBILE', quotas }));
-  assert.equal(sel(d), 'devin/gpt-6-1-sol@high');
+test('history changes recommendation order only with enough evidence within the same tier', () => {
+  const history = {
+    'devin/deepseek-v4-1-flash/high/SMALL_FIX': { runs: 6, problemRuns: 3 },
+    'devin/claude-haiku-5-5/medium/SMALL_FIX': { runs: 4, problemRuns: 0 },
+  };
+  const d = recommend({ klass: 'SMALL_FIX', history });
+  assert.ok(d.options.findIndex(c => c.id === 'devin/claude-haiku-5-5') < d.options.findIndex(c => c.id === 'devin/deepseek-v4-1-flash'));
+  assert.ok(d.notes.some(n => /demoted by history/.test(n)));
+  history['devin/deepseek-v4-1-flash/high/SMALL_FIX'].runs = 4;
+  assert.equal(recommend({ klass: 'SMALL_FIX', history }).options[1].id, 'devin/deepseek-v4-1-flash');
 });
 
-test('EXHAUSTED providers are excluded with a reason', () => {
-  const quotas = { ...healthy(), devin: q('devin', { daily: 0, weekly: 0, source: 'unofficial' }) };
-  const d = route(base({ klass: 'NATIVE_MOBILE', quotas }));
-  assert.equal(sel(d), 'codex/gpt-6.1-sol@high');
-  assert.ok(d.excluded.some((e) => e.id === 'devin/gpt-6-1-sol' && /exhausted/i.test(e.reason)));
+test('an explicitly promoted candidate can lead its tier but remains subject to user choice', () => {
+  const bootstrap = { promoted: { FEATURE: 'devin/swe-2@high' } };
+  assert.equal(key(recommend({ klass: 'FEATURE', bootstrap }).recommended), 'devin/swe-2@high');
+  bootstrap.promoted.FEATURE = 'codex/gpt-6.1-sol@medium';
+  assert.equal(key(recommend({ klass: 'FEATURE', bootstrap }).recommended), 'devin/gpt-6-1-sol@medium');
 });
 
-test('disabled models, disallowed efforts and missing workers are filtered', () => {
-  let cat = setEnabled(catalog, 'devin/gpt-6-1-sol', true, ['low']);
-  let d = route(base({ catalog: cat }));
-  assert.ok(d.excluded.some((e) => e.id === 'devin/gpt-6-1-sol' && /effort/i.test(e.reason)));
-  assert.equal(sel(d), 'devin/claude-sonnet-5-5@high');
-
-  cat = setEnabled(catalog, 'devin/claude-sonnet-5-5', false);
-  d = route(base({ catalog: cat }));
-  assert.ok(d.excluded.some((e) => e.id === 'devin/claude-sonnet-5-5' && /disabled/i.test(e.reason)));
-
-  d = route(base({ workers: { devin: false, codex: true, agy: true } }));
-  assert.equal(sel(d), 'codex/gpt-6.1-sol@medium');
+test('the text recommendation shows alternatives and waits for selection without quota noise', () => {
+  const text = routing.formatDecision(recommend(), { history: { 'devin/gpt-6-1-sol/medium/CROSS_LAYER_FEATURE': { runs: 6, repairRequired: 1 } } });
+  assert.match(text, /Recommended:.*Devin \/ GPT-6.1 Sol \/ Medium/);
+  assert.match(text, /Alternatives:/);
+  assert.match(text, /6 runs in this class/);
+  assert.match(text, /Awaiting user selection/);
+  assert.doesNotMatch(text, /Quota:|remaining|reserve|auto.*fallback/i);
+  assert.match(routing.formatDecision(recommend({ workers: { devin: false, codex: false, agy: false } })), /No eligible candidate/);
 });
 
-test('no usable candidate yields selected=null with every exclusion explained', () => {
-  const d = route(base({ workers: { devin: false, codex: false, agy: false } }));
-  assert.equal(d.selected, null);
-  assert.ok(d.excluded.length >= 3);
-});
-
-test('exclude recalculates the next candidate after a failure', () => {
-  const first = route(base());
-  const next = route(base({ exclude: [`${first.selected.id}@${first.selected.effort}`] }));
-  assert.equal(sel(next), `${first.fallback.id}@${first.fallback.effort}`);
-});
-
-test('bootstrap alternates the candidate with fewer runs, Sol on ties', () => {
-  const key = (n, m) => ({ counts: { FEATURE: { 'devin/gpt-6-1-sol@medium': n, 'devin/swe-2@high': m } }, ended: {} });
-  let d = route(base({ klass: 'FEATURE', bootstrap: key(2, 2) }));
-  assert.equal(sel(d), 'devin/gpt-6-1-sol@medium');
-  assert.match(d.reason, /Bootstrap 4\/10 for FEATURE/);
-  d = route(base({ klass: 'FEATURE', bootstrap: key(3, 2) }));
-  assert.equal(sel(d), 'devin/swe-2@high');
-  assert.equal(`${d.fallback.id}@${d.fallback.effort}`, 'devin/gpt-6-1-sol@medium');
-});
-
-test('bootstrap with no data starts on Sol', () => {
-  const d = route(base({ klass: 'REFACTOR', bootstrap: noBootstrap }));
-  assert.equal(sel(d), 'devin/gpt-6-1-sol@medium');
-  assert.match(d.reason, /Bootstrap 0\/10 for REFACTOR/);
-});
-
-test('bootstrap stops after the configured number of runs or when ended', () => {
-  const done = { counts: { FEATURE: { 'devin/gpt-6-1-sol@medium': 4, 'devin/swe-2@high': 6 } }, ended: {} };
-  let d = route(base({ klass: 'FEATURE', bootstrap: done }));
-  assert.equal(sel(d), 'devin/gpt-6-1-sol@medium');
-  assert.doesNotMatch(d.reason, /Bootstrap/);
-  const ended = { counts: { MIGRATION: { 'devin/gpt-6-1-sol@medium': 3, 'devin/swe-2@high': 0 } }, ended: { MIGRATION: true } };
-  d = route(base({ klass: 'MIGRATION', bootstrap: ended }));
-  assert.doesNotMatch(d.reason, /Bootstrap/);
-});
-
-test('bootstrap does not apply to other classes or when disabled', () => {
-  const counts = { counts: { CROSS_LAYER_FEATURE: { 'devin/gpt-6-1-sol@medium': 5, 'devin/swe-2@high': 0 } }, ended: {} };
-  assert.doesNotMatch(route(base({ bootstrap: counts })).reason, /Bootstrap/);
-  const off = { ...config, bootstrap: { ...config.bootstrap, enabled: false } };
-  assert.doesNotMatch(route(base({ klass: 'FEATURE', config: off })).reason, /Bootstrap/);
-});
-
-test('bootstrap with a single eligible candidate does not alternate', () => {
-  const cat = setEnabled(catalog, 'devin/swe-2', false);
-  const d = route(base({ klass: 'FEATURE', catalog: cat, bootstrap: { counts: { FEATURE: { 'devin/gpt-6-1-sol@medium': 5, 'devin/swe-2@high': 0 } }, ended: {} } }));
-  assert.equal(sel(d), 'devin/gpt-6-1-sol@medium');
-});
-
-test('countBootstrapRuns ignores runs that failed for external reasons', () => {
+test('bootstrap accounting ignores external failures and includes audited permission failures', () => {
   const runs = [
-    { class: 'FEATURE', key: 'devin/gpt-6-1-sol@medium', status: 'SUCCESS' },
-    { class: 'FEATURE', key: 'devin/gpt-6-1-sol@medium', status: 'VALIDATION_FAILURE' },
-    { class: 'FEATURE', key: 'devin/swe-2@high', status: 'QUOTA_EXHAUSTED' },
-    { class: 'FEATURE', key: 'devin/swe-2@high', status: 'TIMEOUT' },
-    { class: 'FEATURE', key: 'devin/swe-2@high', status: 'EXECUTION_FAILURE' },
-    { class: 'FEATURE', key: 'devin/swe-2@high', status: 'PLAN_CONTRADICTION' },
-    { class: 'FEATURE', key: 'devin/swe-2@high', status: 'RATE_LIMITED' },
     { class: 'FEATURE', key: 'devin/swe-2@high', status: 'SUCCESS' },
-    { class: 'REFACTOR', key: 'devin/swe-2@high', status: 'SUCCESS' },
-  ];
-  const c = countBootstrapRuns(runs, 'FEATURE');
-  assert.deepEqual(c, { 'devin/gpt-6-1-sol@medium': 2, 'devin/swe-2@high': 1 });
-});
-
-test('history demotes a candidate whose failure rate is 25+ points worse than the next in its tier', () => {
-  const history = {
-    'devin/deepseek-v4-1-flash/high/SMALL_FIX': { runs: 6, repairRequired: 2, validationFailures: 1 },
-    'devin/claude-haiku-5-5/medium/SMALL_FIX': { runs: 4, repairRequired: 0, validationFailures: 0 },
-  };
-  const d = route(base({ klass: 'SMALL_FIX', history, workers: { devin: true, codex: true, agy: true } }));
-  const order = d.ranked.map((c) => c.id);
-  assert.ok(order.indexOf('devin/claude-haiku-5-5') < order.indexOf('devin/deepseek-v4-1-flash'));
-  assert.ok(d.notes.some((n) => /deepseek/i.test(n) && /history/i.test(n)));
-});
-
-test('history needs at least 5 runs of the candidate to act', () => {
-  const history = {
-    'devin/deepseek-v4-1-flash/high/SMALL_FIX': { runs: 4, repairRequired: 4, validationFailures: 0 },
-    'devin/claude-haiku-5-5/medium/SMALL_FIX': { runs: 4, repairRequired: 0, validationFailures: 0 },
-  };
-  const d = route(base({ klass: 'SMALL_FIX', history }));
-  const order = d.ranked.map((c) => c.id);
-  assert.ok(order.indexOf('devin/deepseek-v4-1-flash') < order.indexOf('devin/claude-haiku-5-5'));
-});
-
-test('formatDecision follows the plan layout', () => {
-  const d = route(base());
-  const text = formatDecision(d, { config, history: { 'devin/gpt-6-1-sol/medium/CROSS_LAYER_FEATURE': { runs: 6, repairRequired: 1 } } });
-  const lines = text.split('\n');
-  assert.equal(lines[0], 'ROUTING DECISION');
-  assert.equal(lines[1], 'Task class: CROSS_LAYER_FEATURE');
-  assert.equal(lines[2], 'Selected:   Devin / GPT-6.1 Sol / Medium');
-  assert.match(text, /^Reason:\s+\S/m);
-  assert.match(text, /^Quota:\s+Devin daily HEALTHY \(96%, reset 1h\)/m);
-  assert.match(text, /\[source: unofficial\]/);
-  assert.match(text, /^History:\s+6 runs in this class · 1 repair/m);
-  assert.match(text, /^Fallback if execution failure: Devin \/ Claude Sonnet 5\.5 \/ High/m);
-  assert.match(text, /^PLAN_CONTRADICTION fallback: NONE → back to Opus/m);
-});
-
-test('formatDecision for no candidate says so', () => {
-  const d = route(base({ workers: { devin: false, codex: false, agy: false } }));
-  assert.match(formatDecision(d, { config }), /No eligible candidate/);
-});
-
-test('history failure rate counts a run with repair and validation failure once (problemRuns)', () => {
-  const history = {
-    'devin/deepseek-v4-1-flash/high/SMALL_FIX': { runs: 6, repairRequired: 2, validationFailures: 2, problemRuns: 2 },
-    'devin/claude-haiku-5-5/medium/SMALL_FIX': { runs: 4, repairRequired: 1, validationFailures: 0, problemRuns: 1 },
-  };
-  const d = route(base({ klass: 'SMALL_FIX', history, workers: { devin: true, codex: true, agy: true } }));
-  const order = d.ranked.map((c) => c.id);
-  assert.ok(order.indexOf('devin/deepseek-v4-1-flash') < order.indexOf('devin/claude-haiku-5-5'));
-  assert.ok(!d.notes.some((n) => /history/i.test(n)));
-});
-
-test('a promoted bootstrap candidate goes first within its tier once the bootstrap ended', () => {
-  const ended = { counts: {}, ended: { FEATURE: true }, promoted: { FEATURE: 'devin/swe-2@high' } };
-  const d = route(base({ klass: 'FEATURE', bootstrap: ended }));
-  assert.equal(sel(d), 'devin/swe-2@high');
-  assert.equal(d.ranked[1].id, 'devin/gpt-6-1-sol');
-  assert.ok(d.notes.some((n) => /promoted/i.test(n)));
-  assert.match(d.reason, /promoted/i);
-});
-
-test('without a promotion Sol stays first after the bootstrap', () => {
-  const ended = { counts: {}, ended: { FEATURE: true }, promoted: {} };
-  assert.equal(sel(route(base({ klass: 'FEATURE', bootstrap: ended }))), 'devin/gpt-6-1-sol@medium');
-});
-
-test('a promoted candidate that is not eligible is ignored', () => {
-  const cat = setEnabled(catalog, 'devin/swe-2', false);
-  const ended = { counts: {}, ended: { FEATURE: true }, promoted: { FEATURE: 'devin/swe-2@high' } };
-  const d = route(base({ klass: 'FEATURE', catalog: cat, bootstrap: ended }));
-  assert.equal(sel(d), 'devin/gpt-6-1-sol@medium');
-  assert.ok(!d.notes.some((n) => /promoted/i.test(n)));
-});
-
-test('a promoted candidate never jumps over a better tier', () => {
-  const ended = { counts: {}, ended: { FEATURE: true }, promoted: { FEATURE: 'codex/gpt-6.1-sol@medium' } };
-  assert.equal(sel(route(base({ klass: 'FEATURE', bootstrap: ended }))), 'devin/gpt-6-1-sol@medium');
-});
-
-test('countBootstrapRuns counts a PERMISSION_FAILURE only when it was audited (verdict not FAILED)', () => {
-  const runs = [
+    { class: 'FEATURE', key: 'devin/swe-2@high', status: 'QUOTA_EXHAUSTED' },
     { class: 'FEATURE', key: 'devin/swe-2@high', status: 'PERMISSION_FAILURE', verdict: 'PASS' },
     { class: 'FEATURE', key: 'devin/swe-2@high', status: 'PERMISSION_FAILURE', verdict: 'FAILED' },
-    { class: 'FEATURE', key: 'devin/swe-2@high', status: 'PERMISSION_FAILURE' },
   ];
-  assert.deepEqual(countBootstrapRuns(runs, 'FEATURE'), { 'devin/swe-2@high': 1 });
+  assert.deepEqual(routing.countBootstrapRuns(runs, 'FEATURE'), { 'devin/swe-2@high': 2 });
 });

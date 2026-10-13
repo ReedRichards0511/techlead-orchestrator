@@ -80,6 +80,7 @@ function permissionFailure(input) {
     planText: input.planText ?? '',
     forbidden: input.forbidden ?? [],
     repo: input.repo ?? '',
+    allowedFileCommands: input.allowedFileCommands ?? [],
   });
   const retry = a.safe && !input.allowlistRetry && input.permission !== 'dangerous';
   let why = `Devin rejected a tool call: ${a.reason}`;

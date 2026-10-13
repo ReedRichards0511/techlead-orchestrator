@@ -1,6 +1,6 @@
 # Política de cuotas
 
-Cómo se lee, normaliza y usa la cuota de cada provider. Léelo en el paso 7 del flujo o cuando el dashboard muestre algo raro.
+Diagnóstico opcional de cuota y contadores de tokens. Lee las fuentes de cuota solo si Reed pide `quota`; el flujo `implement` no consulta porcentajes ni reservas. La recomendación solo considera límites observados durante una corrida, mediante marcadores reactivos locales.
 
 ## Modelo normalizado
 
@@ -29,7 +29,7 @@ La salud del provider es la **peor ventana**, ajustada por reset:
 
 ## Reservas semanales (`config.json → reserves`)
 
-`claude 35 · codex 20 · devin 0 · antigravity 10` (% semanal). Un provider PROTECTED solo se usa si es claramente mejor, no hay alternativa razonable o Reed lo autoriza (`--allow-protected <provider>`). Nunca lo autorices por tu cuenta.
+`claude 35 · codex 20 · devin 0 · antigravity 10` (% semanal). Se conservan como etiquetas informativas del dashboard. PROTECTED y CRITICAL no cambian las recomendaciones ni bloquean la combinación que eligió Reed; `--allow-protected` ya no forma parte de `route`.
 
 ## Fuentes por provider
 
@@ -40,12 +40,12 @@ La salud del provider es la **peor ventana**, ajustada por reset:
 | Devin | Capa 1 (endpoint no oficial `GetUserStatus`): pendiente de implementar | Hoy rige: capa 2 reactiva (errores de cuota/rate limit), capa 3 contabilidad local, capa 4 manual (`orch quota set devin daily=80 weekly=60`). La API key de Devin, si algún día se usa, solo vive en memoria y jamás se loguea ni imprime |
 | Antigravity | Ninguna | UNKNOWN con fallback reactivo. `/usage` en headless gasta un turno y no devuelve cuota: no lo uses |
 
-Lo reactivo: `orch quota exhausted <provider>` registra un EXHAUSTED que expira a 1 h. Los datos manuales y reactivos persisten sobre un refresh si no hay lectura viva, pero un EXHAUSTED reactivo **no lo pisa ninguna lectura viva** (ni `quota refresh`) hasta que expire a 1 h o lo reemplace un dato manual (`orch quota set`). Así, si Codex falla por cuota pero el app-server dice 99% (límite por modelo o por créditos), el provider sigue excluido del routing de la tarea. Menciónale la discrepancia a Reed.
+Lo reactivo: `orch quota exhausted <provider>` registra un EXHAUSTED que expira a 1 h. Los datos manuales y reactivos persisten sobre un refresh si no hay lectura viva, pero un EXHAUSTED reactivo **no lo pisa ninguna lectura viva** (ni `quota refresh`) hasta que expire a 1 h o lo reemplace un dato manual (`orch quota set`). Solo ese marcador reactivo vigente excluye temporalmente al provider de las opciones. Una lectura oficial o manual al 0% no altera el orden de recomendaciones. Un fallo real propone alternativas para otra elección de Reed; no lanza otro worker automáticamente.
 
 ## Cache y refresh
 
 - TTL de 10 minutos (`quotaTtlSeconds: 600`) en `~/.claude/orchestrator/quota-cache.json`.
-- Refresh obligatorio: antes de FEATURE o mayor, si la cache está stale, y tras un RATE_LIMITED o QUOTA_EXHAUSTED (`orch quota refresh`). `orch route` ya refresca solo en FEATURE, CROSS_LAYER_FEATURE, BUG_COMPLEX, NATIVE_MOBILE y ARCHITECTURAL_IMPL.
+- Refresh solo cuando Reed pide el diagnóstico (`orch quota refresh`). `route` y `implement` no consultan fuentes vivas ni escriben el cache; leen únicamente marcadores reactivos vigentes. Un cache ausente o corrupto no impide recomendar modelos.
 - Consultar la cuota nunca usa un LLM.
 
 ## Dashboard
@@ -64,6 +64,4 @@ Nunca muestres emails, tokens de acceso, cookies, API keys ni IDs de cuenta, ni 
 
 ## Tokens del worker
 
-La cuota disponible y el consumo de tokens son métricas distintas. Para Devin, `orch status <runId>` y `orch wait <runId>` leen `final_metrics` del export local; `usage` contiene `source: "devin-export"` y los contadores disponibles `promptTokens`, `cachedTokens`, `completionTokens`. Solo acepta enteros no negativos; un dato ausente es UNKNOWN, no cero. No resta cache de prompt ni estima precios.
-
-`orch history record` guarda esos contadores de la corrida registrada y `orch history` los muestra por corrida. Los registros antiguos siguen funcionando sin métricas. El historial no agrega automáticamente otros intentos o repairs: al resumir una tarea con varias corridas, consulta también sus estados e incluye los consumos disponibles, indicando cualquier corrida sin métricas. Los tokens del arquitecto y de los otros harnesses aún no se miden; para demostrar ahorro hace falta un baseline equivalente que incluya toda la tarea.
+La cuota disponible y el consumo de tokens son métricas distintas. `orch status`/`wait` y `history record` conservan los contadores disponibles del harness. Los registros antiguos siguen funcionando sin métricas. `orch usage start` y `orch usage report` agregan arquitecto y todas las corridas de la tarea, incluidos reintentos y repairs; consulta `references/token-accounting.md` para fuentes, cálculo y límites. No estima precios ni convierte UNKNOWN en cero. Medir tokens todavía no demuestra ahorro: hace falta un baseline equivalente.

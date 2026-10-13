@@ -46,6 +46,27 @@ function readPackageJson(repo) {
   }
 }
 
+export async function devServersFor({ args, config, repo, planPath }) {
+  return devServerAdvice({
+    openPorts: await detectDevServers({ ports: devPorts(args, config) }),
+    commands: parsePlanValidation(readFileSync(planPath, 'utf8')),
+    packageJson: readPackageJson(repo),
+  });
+}
+
+export async function preflightPlan({ args, ctx, repo, planPath }) {
+  const config = loadConfig({ stateDir: ctx.stateDir });
+  const r = await preflight({
+    repo,
+    planPath,
+    config,
+    acceptDirty: args.includes('--accept-dirty'),
+    skipBaseline: args.includes('--skip-baseline'),
+  });
+  if (r.ok) r.devServers = await devServersFor({ args, config, repo, planPath });
+  return r;
+}
+
 export async function main(args, ctx) {
   const planArg = option(args, '--plan');
   if (!planArg) {
@@ -58,21 +79,7 @@ export async function main(args, ctx) {
     console.error(`Plan not found: ${planPath}`);
     return 1;
   }
-  const config = loadConfig({ stateDir: ctx.stateDir });
-  const r = await preflight({
-    repo,
-    planPath,
-    config,
-    acceptDirty: args.includes('--accept-dirty'),
-    skipBaseline: args.includes('--skip-baseline'),
-  });
-  if (r.ok) {
-    r.devServers = devServerAdvice({
-      openPorts: await detectDevServers({ ports: devPorts(args, config) }),
-      commands: parsePlanValidation(readFileSync(planPath, 'utf8')),
-      packageJson: readPackageJson(repo),
-    });
-  }
+  const r = await preflightPlan({ args, ctx, repo, planPath });
   console.log(args.includes('--json') ? JSON.stringify(r, null, 2) : formatPreflight(r));
   return r.ok ? 0 : 1;
 }

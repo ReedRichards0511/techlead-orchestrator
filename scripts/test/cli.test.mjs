@@ -122,17 +122,19 @@ test('quota exhausted marks a provider reactively', () => {
 test('route prints the decision block for a class', real, () => {
   const r = orchRun(['route', '--class', 'CROSS_LAYER_FEATURE']);
   assert.equal(r.status, 0, r.stderr);
-  assert.equal(r.stdout.split(/\r?\n/)[0], 'ROUTING DECISION');
-  assert.match(r.stdout, /Selected:\s+Devin \/ GPT-6\.1 Sol \/ Medium/);
+  assert.equal(r.stdout.split(/\r?\n/)[0], 'WORKER RECOMMENDATION');
+  assert.match(r.stdout, /Recommended:\s+Devin \/ GPT-6\.1 Sol \/ Medium/);
   assert.match(r.stdout, /PLAN_CONTRADICTION fallback: NONE/);
 });
 
-test('route --json exposes selected, fallback and exclusions', real, () => {
+test('route --json exposes recommendations, an interactive question and exclusions', real, () => {
   const r = orchRun(['route', '--class', 'SMALL_FIX', '--json']);
   assert.equal(r.status, 0, r.stderr);
   const d = JSON.parse(r.stdout);
-  assert.equal(d.selected.id, 'devin/swe-2');
-  assert.ok(d.fallback);
+  assert.equal(d.recommended.id, 'devin/swe-2');
+  assert.equal(d.requiresSelection, true);
+  assert.ok(d.options.length <= 4);
+  assert.ok(d.question.questions[0].options.length >= 2);
   assert.ok(Array.isArray(d.excluded));
   assert.equal(/@/.test(r.stdout.replace(/@(low|medium|high|xhigh|max)/g, '')), false);
 });
@@ -147,7 +149,7 @@ test('route --explain lists ranked candidates', real, () => {
 test('route --exclude recalculates after a failure', real, () => {
   const r = orchRun(['route', '--class', 'CROSS_LAYER_FEATURE', '--exclude', 'devin/gpt-6-1-sol@medium', '--json']);
   assert.equal(r.status, 0, r.stderr);
-  assert.equal(JSON.parse(r.stdout).selected.id, 'devin/claude-sonnet-5-5');
+  assert.equal(JSON.parse(r.stdout).recommended.id, 'devin/claude-sonnet-5-5');
 });
 
 test('route rejects an unknown class', () => {

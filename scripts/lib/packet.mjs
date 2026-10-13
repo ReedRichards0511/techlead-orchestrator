@@ -17,7 +17,7 @@ const POLICIES = {
   NO_COMMENTS_POLICY:
     'Do not add comments of any kind: no //, /* */, JSDoc, docstrings, TODO, FIXME or narrative comments. ' +
     'Do not delete existing comments just because of this rule; if your change makes one wrong, update or remove it. ' +
-    'If the plan requires inline documentation, stop and report PLAN_CONTRADICTION.',
+    'If the plan asks for a new comment, skip only that comment, finish the rest and list it in result errors; it is not a PLAN_CONTRADICTION.',
   SCOPE_POLICY:
     'Implement all of the plan and only the plan, in a single run, without asking for confirmation. ' +
     'No unrequested improvements, no refactors outside the scope, no global formatting, no extra documentation, ' +
@@ -29,12 +29,13 @@ const POLICIES = {
   VALIDATION_POLICY:
     'Run the commands in the plan\'s Validation section. Distinguish failures that already existed (see BASELINE) from failures you introduced.',
   DESIGN_CONTEXT_POLICY:
-    'If the plan supplies an external visual reference, use its resolved design context and local assets. Query that reference through MCP ' +
+    'If the plan supplies an external visual reference, use its resolved design context and supplied assets or asset URLs. Download/create product assets yourself only at the paths and from the sources declared in the plan. Query that reference through MCP ' +
     'only if the plan explicitly assigns that work to you; report PLAN_CONTRADICTION if required reference details are missing. ' +
     'Without an external visual reference, follow repository patterns; no design service or MCP is required.',
   GIT_POLICY:
-    'Never commit, push, merge, rebase, reset --hard, clean, delete branches or touch the stash. ' +
-    'Do not touch changes that are not part of this task. Never write outside WORKSPACE.',
+    'Use Git only to inspect status, diff, log or tracked files. Never use git mv, rm, add, restore, commit, push, merge, rebase, reset, clean, branch deletion or stash mutations. ' +
+    'For declared moves/deletions use the exact FILE_OPERATIONS helper commands; do not use rm, mv, git or ad hoc scripts. ' +
+    'If an undeclared move/deletion is necessary, report PLAN_CONTRADICTION before attempting it. Do not touch changes that are not part of this task. Never write outside WORKSPACE.',
   RUNNER_FILES_POLICY:
     'The .orchestrator/ directory is runner state and is read-only for you except writing RESULT_PATH (it is git-ignored and does not exist in CI). ' +
     'Never import, read or reference it from source code, tests, fixtures or config. If the plan says to use a file from there as a source, copy its content into the project at a tracked path inside the plan scope.',
@@ -56,6 +57,7 @@ function header(o, title) {
     `PLAN_PATH: ${o.planPath}`,
     `WORKSPACE: ${o.workspace}`,
     `RESULT_PATH: ${o.resultPath}`,
+    `FILE_OPERATIONS: ${(o.fileCommands ?? []).map((command, i) => `${i + 1}. ${o.fileOperations[i].kind} ${o.fileOperations[i].source}${o.fileOperations[i].destination ? ` -> ${o.fileOperations[i].destination}` : ''}\n   ${command}`).join('\n') || '(none declared)'}`,
   ].join('\n');
 }
 

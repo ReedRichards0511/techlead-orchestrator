@@ -6,6 +6,7 @@ import { basename, dirname, extname, join, resolve, sep } from 'node:path';
 import { isAlive } from './proc.mjs';
 import { gitPaths } from './git.mjs';
 import { compareToBaseline, matchScope, parsePlanValidation, parseScope, runValidation, validatePlan } from './validate.mjs';
+import { checkFileOperations, prepareFileOperations, hasFileOperationBaseline } from './file-operations.mjs';
 
 void compareToBaseline;
 
@@ -250,6 +251,11 @@ export async function preflight({ repo, planPath, config, acceptDirty = false, s
     return { ok: false, needsConfirmation: true, dirtyFiles, error: 'The working tree has changes that are not part of this task' };
   }
 
+  let fileOperations;
+  try { fileOperations = checkFileOperations({ repo, planText: readFileSync(planPath, 'utf8') }); }
+  catch (e) { return { ok: false, error: e.message }; }
+  if (hasFileOperationBaseline(repo, planId)) return { ok: false, error: 'This plan already has file-operation backups. Reuse its snapshot with a continuation; do not replace the baseline. A new scope requires a new plan id.' };
+
   ensureExcluded(repo);
   let lock;
   try {
@@ -259,6 +265,8 @@ export async function preflight({ repo, planPath, config, acceptDirty = false, s
   }
 
   const snapshot = takeSnapshot({ repo, planId, now });
+  prepareFileOperations({ repo, planId, operations: fileOperations });
+  snapshot.fileOperations = fileOperations;
   if (!skipBaseline) {
     const commands = parsePlanValidation(readFileSync(planPath, 'utf8'));
     snapshot.baseline = await runValidation({
@@ -292,14 +300,23 @@ function extOf(file) {
 function isComment(ext, text) {
   const t = text.trim();
   if (!t) return false;
+  let code = '', quote = null;
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i];
+    if (quote) {
+      if (char === '\\') i++;
+      else if (char === quote) quote = null;
+    } else if ('\"\'`'.includes(char)) quote = char;
+    else code += char;
+  }
   if (CSTYLE.has(ext)) {
     if (t.startsWith('//') || t.startsWith('/*') || t.startsWith('*/') || /^\*(\s|$)/.test(t)) return true;
-    if (/(^|\s)\/\/(?!\/)/.test(text) || /(^|\s)\/\*/.test(text)) return true;
+    if (code.includes('//') || code.includes('/*')) return true;
   }
   if (BLOCK_ONLY.has(ext) && (t.startsWith('/*') || t.startsWith('*/') || /^\*(\s|$)/.test(t))) return true;
   if (HASH.has(ext)) {
     if (t.startsWith('#') && !t.startsWith('#!')) return true;
-    if (HASH_INLINE.has(ext) && /\s#\s/.test(text)) return true;
+    if (HASH_INLINE.has(ext) && /\s#\s/.test(code)) return true;
   }
   if (ext === 'py' && (t.startsWith('"""') || t.startsWith("'''"))) return true;
   if (HTML.has(ext) && t.includes('<!--')) return true;
@@ -309,11 +326,17 @@ function isComment(ext, text) {
 
 export function scanAddedComments(files) {
   const found = [];
-  for (const { file, added } of files) {
+  for (const { file, added, removed = [] } of files) {
     const ext = extOf(file);
     if (NO_SCAN.has(ext)) continue;
-    for (const { line, text } of added) {
-      if (isComment(ext, text)) found.push({ file, line, text: text.trim().slice(0, 120), kind: 'comment' });
+    const removedComments = removed.filter(item => isComment(ext, item.text));
+    const used = new Set();
+    for (const { line, text, hunk } of added) {
+      if (isComment(ext, text)) {
+        const replacement = removedComments.findIndex((item, index) => !used.has(index) && (item.text.trim() === text.trim() || item.hunk === hunk));
+        if (replacement >= 0) { used.add(replacement); continue; }
+        found.push({ file, line, text: text.trim().slice(0, 120), kind: 'comment' });
+      }
       else if (MARKER.test(text)) found.push({ file, line, text: text.trim().slice(0, 120), kind: 'marker' });
     }
   }
@@ -342,17 +365,28 @@ function changedSinceSnapshot(repo, snapshot, gitRoot) {
 
 function addedLinesFromDiff(diff) {
   const added = [];
-  let line = 0;
+  let line = 0, hunk = 0;
   for (const l of diff.split(/\r?\n/)) {
     const h = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(l);
     if (h) {
       line = Number(h[1]);
+      hunk++;
       continue;
     }
     if (l.startsWith('+++') || l.startsWith('---')) continue;
-    if (l.startsWith('+')) added.push({ line: line++, text: l.slice(1) });
+    if (l.startsWith('+')) added.push({ line: line++, text: l.slice(1), hunk });
   }
   return added;
+}
+
+function removedLinesFromDiff(diff) {
+  const removed = [];
+  let hunk = 0;
+  for (const line of diff.split(/\r?\n/)) {
+    if (line.startsWith('@@ ')) hunk++;
+    if (line.startsWith('-') && !line.startsWith('---')) removed.push({ text: line.slice(1), hunk });
+  }
+  return removed;
 }
 
 function numstatTotal(repo, base, path, ignoreWhitespace) {
@@ -401,7 +435,7 @@ export function postflightChecks({ repo, snapshot, planText, config }) {
   const changedFiles = changedSinceSnapshot(repo, snapshot, gitRoot);
 
   for (const f of changedFiles) {
-    const inScope = inWorkspaceScope(f.path, scope.inScope);
+    const inScope = inWorkspaceScope(f.path, scope.inScope) && !inWorkspaceScope(f.path, scope.outOfScope);
     if (f.status === 'deleted') {
       if (!inScope) {
         add('DELETED_OUT_OF_PLAN', 'grave', `Deleted a file that is not in the plan: ${f.path}`, f.path);
@@ -431,7 +465,7 @@ export function postflightChecks({ repo, snapshot, planText, config }) {
   const paths = new Set([...Object.keys(snapshot.manifests ?? {}), ...Object.keys(manifestsNow)]);
   for (const path of [...paths].sort()) {
     if ((snapshot.manifests ?? {})[path] === manifestsNow[path]) continue;
-    if (!inWorkspaceScope(path, scope.inScope)) add('MANIFEST_CHANGED', 'violation', `Manifest or lockfile changed without the plan asking: ${path}`, path);
+    if (!inWorkspaceScope(path, scope.inScope) || inWorkspaceScope(path, scope.outOfScope)) add('MANIFEST_CHANGED', 'violation', `Manifest or lockfile changed without the plan asking: ${path}`, path);
   }
 
   const maxBytes = config.safety?.commentScanMaxFileBytes ?? 1000000;
@@ -442,17 +476,23 @@ export function postflightChecks({ repo, snapshot, planText, config }) {
     const baseHasFile = base && git(repo, ['cat-file', '-e', `${base}:${f.path}`]).status === 0;
     if (baseHasFile) {
       const diff = gitOut(gitRoot, ['diff', '-U0', '--no-color', base, '--', f.path]) ?? '';
-      sources.push({ file: f.path, added: addedLinesFromDiff(diff) });
+      sources.push({ file: f.path, added: addedLinesFromDiff(diff), removed: removedLinesFromDiff(diff) });
       const total = numstatTotal(gitRoot, base, f.path, false);
       const meaningful = numstatTotal(gitRoot, base, f.path, true);
-      if (total - meaningful > maxWs) add('WHITESPACE_ONLY', 'flag', `${total - meaningful} whitespace-only line changes in ${f.path}`, f.path);
+      if (total - meaningful > maxWs && (total - meaningful) / total >= 0.8) add('WHITESPACE_ONLY', 'flag', `${total - meaningful} whitespace-only line changes in ${f.path}`, f.path);
     } else {
       try {
         const full = join(gitRoot, f.path);
         if (statSync(full).size > maxBytes) continue;
         const buf = readFileSync(full);
         if (buf.includes(0)) continue;
-        sources.push({ file: f.path, added: buf.toString('utf8').split(/\r?\n/).map((text, i) => ({ line: i + 1, text })) });
+        const moveIndex = (snapshot.fileOperations ?? []).findIndex(op => op.kind === 'move' && `${prefix}${op.destination}` === f.path);
+        let removed = [];
+        if (moveIndex >= 0) {
+          const backup = join(repo, '.orchestrator', 'snapshots', snapshot.planId, `file-operation-${moveIndex + 1}.backup`);
+          if (existsSync(backup)) removed = readFileSync(backup, 'utf8').split(/\r?\n/).map(text => ({ text }));
+        }
+        sources.push({ file: f.path, added: buf.toString('utf8').split(/\r?\n/).map((text, i) => ({ line: i + 1, text })), removed });
       } catch {
         // unreadable file: nothing to scan
       }

@@ -13,7 +13,7 @@ function fakeRun(overrides = {}) {
     const key = `${exe.split('/').pop().replace('.exe', '')} ${args.join(' ')}`;
     if (key in overrides) return overrides[key];
     const table = {
-      'claude --version': { status: 0, stdout: '2.1.292 (Claude Code)\n', stderr: '' },
+      'claude --version': { status: 0, stdout: '2.1.296 (Claude Code)\n', stderr: '' },
       'devin --version': { status: 0, stdout: 'devin 3000.11.3 (9c803229faa4)\n', stderr: '' },
       'codex --version': { status: 0, stdout: 'codex-cli 0.160.0\n', stderr: '' },
       'agy --version': { status: 0, stdout: '1.3.3\n', stderr: '' },
@@ -54,6 +54,13 @@ test('doctor never leaks emails or account ids', async () => {
   const text = JSON.stringify(r);
   assert.equal(text.includes('secret@example.com'), false);
   assert.equal(text.includes('org-123'), false);
+});
+
+test('doctor stops before implementation when Claude cannot enforce failure-blocking role hooks', async () => {
+  const r = await runDoctor(base({ run: { 'claude --version': { status: 0, stdout: '2.1.292 (Claude Code)' } } }));
+  assert.equal(r.ok, false);
+  assert.equal(r.roleGuard.available, false);
+  assert.ok(r.warnings.some(w => w.includes('2.1.295')));
 });
 
 test('a missing CLI is reported and does not abort the others', async () => {

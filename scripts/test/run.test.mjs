@@ -7,6 +7,8 @@ import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { startRun, getStatus, waitRun } from '../lib/run.mjs';
 import { gitPorcelain } from '../lib/git.mjs';
+import { preflight, postflightChecks } from '../lib/safety.mjs';
+import { capture } from '../lib/proc.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const config = JSON.parse(readFileSync(join(here, '..', '..', 'config.defaults.json'), 'utf8'));
@@ -68,6 +70,39 @@ const launch = (extra = {}) => {
   });
   return { repo, planPath, run };
 };
+
+test('a declared move runs through the worker helper with a backup, allowlist and preserved comments', async () => {
+  const { repo, planPath } = repoWithPlan();
+  mkdirSync(join(repo, 'src'));
+  writeFileSync(join(repo, 'src', 'old.tsx'), 'const card = <View>{/* existing explanation */}</View>;\n');
+  for (const args of [['init', '-q'], ['config', 'user.email', 'test@example.com'], ['config', 'user.name', 'test'], ['add', 'src'], ['commit', '-qm', 'baseline']]) assert.equal(spawnSync('git', args, { cwd: repo }).status, 0);
+  const plan = '# Plan\n## Scope\n- In scope:\n  - src/old.tsx (eliminar), src/new.tsx\n## Validation\n- Commands: `node -v`\n## File operations\n- Move: `src/old.tsx` -> `src/new.tsx`\n';
+  writeFileSync(planPath, plan);
+  const baseline = await preflight({ repo, planPath, config, skipBaseline: true });
+  assert.equal(baseline.ok, true, baseline.error);
+  const runner = fileURLToPath(new URL('../orch.mjs', import.meta.url));
+  const buildInvocation = ({ resultPath, runDir }) => ({ exeName: 'node', args: ['-e', `require('child_process').execFileSync(process.execPath, ${JSON.stringify([runner, 'worker-files', '--repo', repo, '--run', runDir.split(/[\\/]/).at(-1), '--operation', '1'])}); require('fs').writeFileSync(${JSON.stringify(resultPath)}, ${JSON.stringify(goodResult)});`], cwd: repo });
+  const run = startRun({ repo, planPath, klass: 'SMALL_FIX', entry: entry(), effort: 'medium', config, buildInvocation, resolveExe: () => node });
+  assert.equal(run.devinAllowlist.applied, true);
+  assert.ok(readFileSync(join(run.runDir, 'packet.md'), 'utf8').includes('worker-files'));
+  const status = await waitRun({ repo, runId: run.runId, timeoutMs: 15000 });
+  assert.equal(status.exitCode, 0, readFileSync(join(run.runDir, 'stderr.log'), 'utf8'));
+  assert.equal(status.meta.fileCommands.length, 1);
+  assert.equal(existsSync(join(repo, 'src', 'old.tsx')), false);
+  const checks = postflightChecks({ repo, snapshot: baseline.snapshot, planText: plan, config });
+  assert.equal(checks.ok, true);
+  assert.deepEqual(checks.comments, []);
+});
+
+test('wait --until-ended returns one final result from a background-compatible CLI watcher', async () => {
+  const { repo, run } = launch({ script: "setTimeout(() => require('fs').writeFileSync(__RESULT__, __GOOD__), 300)" });
+  const runner = fileURLToPath(new URL('../orch.mjs', import.meta.url));
+  const result = await capture(node, [runner, 'wait', run.runId, '--repo', repo, '--until-ended', '--json'], { timeoutMs: 15000 });
+  assert.equal(result.status, 0, result.stderr);
+  const status = JSON.parse(result.stdout);
+  assert.equal(status.state, 'exited');
+  assert.equal(status.waiting, undefined);
+});
 
 test('startRun lays out the run directory and returns immediately', async () => {
   const t0 = Date.now();
