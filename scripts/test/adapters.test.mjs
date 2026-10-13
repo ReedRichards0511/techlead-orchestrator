@@ -21,6 +21,18 @@ const catalog = buildCatalog({
 const entry = (id) => catalog.models.find((m) => m.id === id);
 const common = { packetPath: '/r/runs/x/packet.md', repo: '/repo', config, runDir: '/r/runs/x' };
 
+test('disabled permission bypasses explicitly keep Codex sandboxed and omit agy escalation', () => {
+  const restricted = structuredClone(config);
+  restricted.permissions.codex.bypassSandbox = false;
+  restricted.permissions.agy.skipPermissions = false;
+  const codex = buildInvocation({ ...common, config: restricted, entry: entry('codex/gpt-6.1-sol'), effort: 'high' });
+  assert.ok(!codex.args.includes('--dangerously-bypass-approvals-and-sandbox'));
+  assert.equal(codex.args[codex.args.indexOf('--sandbox') + 1], 'workspace-write');
+  assert.ok(codex.args.includes('approval_policy="never"'));
+  const agy = buildInvocation({ ...common, config: restricted, entry: entry('agy/gemini-3.8-flash'), effort: 'medium' });
+  assert.ok(!agy.args.includes('--dangerously-skip-permissions'));
+});
+
 test('devin invocation uses a prompt file, effort inside the slug and smart permissions', () => {
   const inv = buildInvocation({ ...common, entry: entry('devin/gpt-6-1-sol'), effort: 'medium' });
   assert.equal(inv.exeName, 'devin');

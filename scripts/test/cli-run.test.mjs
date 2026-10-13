@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -145,4 +145,22 @@ test('run --repair requires a non-empty points list', () => {
   const r = orchRun(['run', '--plan', plan, '--class', 'SMALL_FIX', '--repo', repo, '--model', 'devin/nope', '--effort', 'high', '--repair', empty]);
   assert.equal(r.status, 1);
   assert.match(r.stderr, /points/i);
+});
+
+test('CLI run forwards project rules and preflight baseline before the test guard stops the worker', () => {
+  const repo = repoWithRun({ state: 'exited' });
+  const plan = join(repo, '.orchestrator', 'plans', 'p1.md');
+  writeFileSync(plan, '# Plan p1\n## Scope\n- In scope: a.txt\n## Validation\n- Commands: `node -v`\n');
+  const rules = join(repo, '.orchestrator', 'plans', 'p1-project-rules.md');
+  writeFileSync(rules, 'Preserve existing exports');
+  mkdirSync(join(repo, '.orchestrator', 'snapshots'), { recursive: true });
+  writeFileSync(join(repo, '.orchestrator', 'snapshots', 'p1.json'), JSON.stringify({ baseline: [{ command: 'node -v', passed: true, exitCode: 0 }] }));
+  writeFileSync(join(state, 'catalog.json'), JSON.stringify({ models: [{ id: 'codex/fake', harness: 'codex', slugTemplate: 'fake', efforts: ['medium'], allowedEfforts: ['medium'], enabled: true }] }));
+  const r = orchRun(['run', '--plan', plan, '--class', 'SMALL_FIX', '--repo', repo, '--model', 'codex/fake', '--effort', 'medium', '--project-rules', rules]);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /ORCH_FORBID_REAL_WORKERS/);
+  const dir = readdirSync(join(repo, '.orchestrator', 'runs')).find((name) => name.startsWith('p1-'));
+  const packet = readFileSync(join(repo, '.orchestrator', 'runs', dir, 'packet.md'), 'utf8');
+  assert.match(packet, /PROJECT_RULES: Preserve existing exports/);
+  assert.match(packet, /BASELINE:.*node -v.*"passed":true/);
 });

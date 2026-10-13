@@ -23,7 +23,7 @@ export function loadHistory(stateDir) {
   const base = emptyHistory();
   if (!stored || typeof stored !== 'object') return base;
   return {
-    aggregates: stored.aggregates ?? base.aggregates,
+    aggregates: Array.isArray(stored.runs) ? aggregateRuns(stored.runs) : stored.aggregates ?? base.aggregates,
     runs: Array.isArray(stored.runs) ? stored.runs : base.runs,
     bootstrap: { ...base.bootstrap, ...(stored.bootstrap ?? {}) },
   };
@@ -63,7 +63,7 @@ export function buildRunRecord({ status, verdict, repairs = 0, postflight = null
     repairs,
     durationMin: round(Math.max(0, ended - started) / 60000, 1),
     planHash: meta.planPath ? createHash('sha256').update(meta.planPath).digest('hex').slice(0, 12) : null,
-    problem: cls.status === 'VALIDATION_FAILURE' || final === 'REPAIR_REQUIRED',
+    problem: repairs > 0 || cls.status === 'VALIDATION_FAILURE' || final === 'REPAIR_REQUIRED',
     scopeFlags: violations.filter((v) => (v.code === 'SOFT_SCOPE_VIOLATION' || v.code === 'OUT_OF_SCOPE')).length,
     commentFlags: postflight?.comments?.length ?? 0,
     permissionRetry: (cls.status === 'PERMISSION_FAILURE' && final !== 'FAILED') || meta.permission === 'dangerous' || Boolean(meta.allowlistRetryOf),
@@ -90,7 +90,7 @@ export function aggregateRuns(runs) {
       executionFailures: count((r) => r.status === 'EXECUTION_FAILURE'),
       validationFailures: count((r) => r.status === 'VALIDATION_FAILURE'),
       permissionRetries: count((r) => r.permissionRetry),
-      problemRuns: count((r) => r.problem ?? (r.status === 'VALIDATION_FAILURE' || r.verdict === 'REPAIR_REQUIRED')),
+      problemRuns: count((r) => (r.repairs ?? 0) > 0 || (r.problem ?? (r.status === 'VALIDATION_FAILURE' || r.verdict === 'REPAIR_REQUIRED'))),
       repairCount: sum(list, (r) => r.repairs ?? 0),
       avgRepairCount: round(sum(list, (r) => r.repairs ?? 0) / list.length, 2),
       avgDurationMin: round(sum(list, (r) => r.durationMin ?? 0) / list.length),

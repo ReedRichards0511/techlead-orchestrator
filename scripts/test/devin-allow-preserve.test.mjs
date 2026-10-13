@@ -190,7 +190,7 @@ test('a run that created the config leaves no .devin directory behind in any out
     const repo = gitRepo();
     const planPath = join(repo, '.orchestrator', 'plans', 'p1.md');
     mkdirSync(dirname(planPath), { recursive: true });
-    writeFileSync(planPath, '# Plan p1\n\n## Validation\n- Commands: `npm test`\n');
+    writeFileSync(planPath, '# Plan p1\n\n## Scope\n- In scope: a.txt\n\n## Validation\n- Commands: `npm test`\n');
     const run = startRun({
       repo, planPath, klass: 'SMALL_FIX', entry, effort: 'medium', config, resolveExe: () => node,
       buildInvocation: ({ resultPath }) => ({ exeName: 'node', args: ['-e', script, resultPath], stdinPath: null, cwd: repo, permission: 'smart' }),

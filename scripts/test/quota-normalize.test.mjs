@@ -18,6 +18,16 @@ const now = new Date('2026-10-12T12:00:00Z');
 const cfg = { thresholds, reserves, quotaTtlSeconds: 600 };
 const inSec = (s) => Math.floor(now.getTime() / 1000) + s;
 
+test('absent or non-numeric percentages stay UNKNOWN instead of becoming available quota', () => {
+  for (const value of [null, undefined, NaN, Infinity, '0']) {
+    assert.equal(windowFromUsed(value, null, now), 'UNKNOWN');
+    assert.equal(windowFromRemaining(value, null, now), 'UNKNOWN');
+    const q = buildQuota({ provider: 'codex', source: 'official', retrievedAt: now, now, config: cfg, windows: { short: { remainingPercent: value } } });
+    assert.equal(q.health, 'UNKNOWN');
+    assert.equal(q.available, false);
+  }
+});
+
 test('levelFor follows the plan thresholds', () => {
   assert.equal(levelFor(100, thresholds), 'HEALTHY');
   assert.equal(levelFor(51, thresholds), 'HEALTHY');

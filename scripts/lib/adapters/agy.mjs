@@ -1,6 +1,6 @@
 import { slugFor } from '../catalog.mjs';
 
-export function build({ entry, effort, packetPath, repo }) {
+export function build({ entry, effort, packetPath, repo, config }) {
   slugFor(entry, effort);
   if (!entry.efforts.includes(effort)) throw new Error(`effort ${effort} is not available for ${entry.id}`);
   const instruction = `Read and follow the implementation packet at ${packetPath}. Do not ask questions.`;
@@ -11,7 +11,7 @@ export function build({ entry, effort, packetPath, repo }) {
       entry.slugTemplate,
       '--effort',
       effort,
-      '--dangerously-skip-permissions',
+      ...(config?.permissions?.agy?.skipPermissions === false ? [] : ['--dangerously-skip-permissions']),
       '--output-format',
       'stream-json',
       '--print-timeout',

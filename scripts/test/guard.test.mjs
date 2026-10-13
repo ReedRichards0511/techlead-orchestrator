@@ -16,7 +16,7 @@ function repoWithPlan() {
   spawnSync('git', ['init', '-q'], { cwd: repo, shell: false });
   const planPath = join(repo, '.orchestrator', 'plans', 'p1.md');
   mkdirSync(dirname(planPath), { recursive: true });
-  writeFileSync(planPath, '# Plan p1\n');
+  writeFileSync(planPath, '# Plan p1\n## Scope\n- In scope: a.txt\n## Validation\n- Commands: `node -v`\n');
   return { repo, planPath };
 }
 

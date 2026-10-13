@@ -2,9 +2,9 @@
 
 Cómo invoca el runner a cada CLI, con las versiones verificadas y sus trampas. Léelo cuando un worker falle de forma rara, cuando `doctor` avise de una versión distinta, o antes de tocar un adapter.
 
-Versiones verificadas (Windows 11): claude 2.1.292 · devin 3000.11.3 · codex 0.160.0 · agy 1.3.3. `orch doctor` compara y avisa si difieren. macOS no está inspeccionado.
+Versiones verificadas con workers (Windows 11): claude 2.1.292 · devin 3000.11.3 · codex 0.160.0 · agy 1.3.3. `orch doctor` compara y avisa si difieren. En macOS se validan resolución de ejecutables, procesos, timeouts, snapshots y contratos con workers simulados; las implementaciones con suscripciones reales quedan para pruebas manuales.
 
-Todos se lanzan con `spawn(exe, args, {shell:false, cwd: repo, detached})`, stdout y stderr a archivos, y el entorno sin variables `CLAUDE*` del padre. Los workers corren sin aislamiento real: la defensa es el contrato, el snapshot, los checks del postflight y tu auditoría.
+Todos se lanzan con `spawn(exe, args, {shell:false, cwd: repo, detached})`, stdout y stderr a archivos, y el entorno sin variables `CLAUDE*` del padre. Con la configuración predeterminada, Codex y agy omiten sus permisos: la defensa es el contrato, el snapshot, los checks del postflight y tu auditoría.
 
 ## Devin (worker)
 
@@ -31,6 +31,7 @@ stdin = packet.md
 
 - Prompt por **stdin** (`-`). Stdout es JSONL: `thread.started` (guarda `thread_id`), `item.*`, `turn.completed|failed`, `error`.
 - **Sin sandbox** por decisión de Reed: el sandbox de Windows no encuentra node/npm ni aísla la red de forma práctica.
+- Con `permissions.codex.bypassSandbox: false`, se pasa `--sandbox workspace-write -c approval_policy="never"` explícitamente, incluso si la configuración global de Codex tiene acceso completo. Los comandos fuera de ese límite fallan en headless.
 - **Stderr se ignora si exit=0** (ruido `rmcp` de un MCP local caído).
 - El effort por defecto de Sol es `low`: siempre pásalo explícito. `ultra` está prohibido y el adapter lo rechaza.
 - Nunca `--ephemeral` en implementaciones reales. Hoy un repair de Codex es una corrida nueva con repair packet; `codex exec resume <thread_id>` queda como mejora pendiente de verificar (P4).
@@ -44,6 +45,7 @@ agy --model <slug base> --effort <low|medium|high> --dangerously-skip-permission
 ```
 
 - **Solo argv:** `--print=<instrucción>` va **siempre al final**; `-p` separado se come el siguiente token. La instrucción corta apunta al packet por ruta absoluta.
+- Con `permissions.agy.skipPermissions: false`, se omite `--dangerously-skip-permissions`; se respetan los permisos configurados en agy, sin prometer aislamiento del filesystem.
 - El effort se pasa con el slug **base** + `--effort`; el máximo real de Gemini 3.8 Flash es `high`. Un slug con effort más `--effort` falla.
 - Se parsea el evento `{"event":"result","result":{status,response,error,usage,denied_actions}}`. `denied_actions` no vacío = PERMISSION_FAILURE; `status` ≠ SUCCESS se clasifica por `error`. Un modelo inválido da `status:ERROR`, exit 1, sin gastar turno → MODEL_UNAVAILABLE.
 - **Sin límite de workspace en Windows:** `--sandbox` no restringe el filesystem. Riesgo aceptado por Reed; revisa rutas fuera del repo en la auditoría si el plan las menciona.

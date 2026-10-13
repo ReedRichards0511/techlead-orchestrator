@@ -1,6 +1,6 @@
 import { slugFor } from '../catalog.mjs';
 
-export function build({ entry, effort, packetPath, repo }) {
+export function build({ entry, effort, packetPath, repo, config }) {
   slugFor(entry, effort);
   if (effort === 'ultra') throw new Error('effort ultra is forbidden');
   return {
@@ -12,7 +12,9 @@ export function build({ entry, effort, packetPath, repo }) {
       entry.slugTemplate,
       '-c',
       `model_reasoning_effort="${effort}"`,
-      '--dangerously-bypass-approvals-and-sandbox',
+      ...(config?.permissions?.codex?.bypassSandbox === false
+        ? ['--sandbox', 'workspace-write', '-c', 'approval_policy="never"']
+        : ['--dangerously-bypass-approvals-and-sandbox']),
       '-C',
       repo,
       '-',

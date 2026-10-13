@@ -32,7 +32,7 @@ const POLICIES = {
     'Never commit, push, merge, rebase, reset --hard, clean, delete branches or touch the stash. ' +
     'Do not touch changes that are not part of this task. Never write outside WORKSPACE.',
   RUNNER_FILES_POLICY:
-    'The .orchestrator/ directory is runner state and is read-only for you (it is git-ignored and does not exist in CI). ' +
+    'The .orchestrator/ directory is runner state and is read-only for you except writing RESULT_PATH (it is git-ignored and does not exist in CI). ' +
     'Never import, read or reference it from source code, tests, fixtures or config. If the plan says to use a file from there as a source, copy its content into the project at a tracked path inside the plan scope.',
 };
 
@@ -81,6 +81,7 @@ export function renderRepairPacket(o) {
     `FAILED_POINTS:\n${points}`,
     `COMMANDS_THAT_MUST_PASS:\n${commands || '- (see the plan Validation section)'}`,
     `PROJECT_RULES: ${o.projectRules || '(none provided)'}`,
+    `BASELINE: ${o.baseline || '(none recorded)'}`,
     contract(o.config),
     footer(),
   ].join('\n\n');
@@ -98,6 +99,7 @@ export function renderContinuationPacket(o) {
     `TESTS_FAILED:\n${list(o.testsFailed)}`,
     `RESUME_AT: ${o.resumeAt ?? '(see MISSING)'}`,
     `PROJECT_RULES: ${o.projectRules || '(none provided)'}`,
+    `BASELINE: ${o.baseline || '(none recorded)'}`,
     contract(o.config),
     footer(),
   ].join('\n\n');

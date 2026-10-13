@@ -76,7 +76,7 @@ Principios no negociables:
 | D1 | Plataformas | Windows y macOS. Sin Linux/CachyOS en v1 |
 | D2 | Allowlist de Devin | SWE-2 (todos los efforts), GPT-6.1 Sol (todos), Sonnet 5.5 (todos), Haiku 5.5 (todos), DeepSeek V4.1 Flash (todos). **Fuera:** Fusion, Luna, Gemini, Kimi |
 | D3 | Codex | Sin sandbox: `--dangerously-bypass-approvals-and-sandbox` |
-| D4 | Permisos de Devin | `smart` por defecto. Si bloquea un comando, **reintento automático con `dangerous`** |
+| D4 | Permisos de Devin | `smart` por defecto. Un bloqueo inspeccionable, no destructivo y previsto en el plan permite un reintento con allowlist específica. `dangerous` solo por decisión explícita de Reed |
 | D5 | Antigravity | Worker **automático**, igual que los demás (pese a que `--sandbox` no limita el workspace en Windows) |
 | D6 | Cuota de Devin | Opción **(b)**: endpoint no oficial `GetUserStatus` autorizado, con capas de respaldo |
 | D7 | Cuota de Antigravity | UNKNOWN, con fallback reactivo |
@@ -645,7 +645,8 @@ Todos los comandos responden con `--json` para que Opus los consuma.
 devin -p --prompt-file <run>/packet.md
       --model <slug-con-effort>
       --respect-workspace-trust false
-      --permission-mode smart            (o dangerous en el reintento, D4)
+      --permission-mode smart
+      --export <run>/devin-session.json
 cwd = <repo>
 ```
 
@@ -653,10 +654,10 @@ Resultado:
 - Stdout es texto libre. El resultado semántico sale de `result.json`, que escribe el worker según el contrato.
 - **Detección de bloqueo:** exit 0 + stdout vacío (o casi) + stderr con `rejected a tool call that requires confirmation` = **PERMISSION_FAILURE**.
 
-Reintento con `dangerous` (D4):
-- Si `git diff` frente al snapshot está vacío: se repite el mismo packet con `--permission-mode dangerous`.
-- Si ya hay cambios: se arma un continuation packet y se relanza con `dangerous`.
-- En los dos casos se registra en `events.jsonl` y se menciona en el resumen.
+Reintento con allowlist (D4):
+- Se inspeccionan las llamadas bloqueadas del export. Solo comandos previstos en el plan y no destructivos permiten `orch run --allow-from <runId>`, con reglas `Exec(...)` específicas.
+- Si ya hay cambios, se añade un continuation packet. Un segundo bloqueo, un comando fuera del plan o una llamada no inspeccionable devuelve `stop-reed`.
+- Nunca se escala automáticamente a `dangerous`; Reed decide esa opción. La configuración local de Devin se restaura al terminar la corrida.
 
 Errores de cuota, rate limit y modelo no disponible: los patrones de stderr se definen en `classify.mjs`. **Hay que capturarlos la primera vez que ocurran** (ver §24), y mientras tanto se usa un patrón genérico. Si el exit code es distinto de 0 y no hay `result.json`, se clasifica EXECUTION_FAILURE o UNKNOWN_FAILURE.
 
@@ -773,7 +774,7 @@ El runner valida el schema. Si falta o es inválido, se cruza con el exit code y
 
 | Estado | Quién lo determina | Señales | ¿Fallback? |
 |---|---|---|---|
-| SUCCESS | worker + runner | `result.json` con SUCCESS y postflight OK | — (pasa a la auditoría) |
+| SUCCESS | worker + runner | `result.json` con SUCCESS, exit 0, finalización del harness y postflight OK | — (pasa a la auditoría) |
 | PLAN_CONTRADICTION | worker | `status` + `planContradiction` | **NUNCA.** STOP y vuelve a Opus |
 | VALIDATION_FAILURE | worker o runner | regresiones frente al baseline | No: repair con el mismo worker |
 | EXECUTION_FAILURE | runner | exit ≠ 0, crash, sin `result.json` | Sí |
@@ -781,7 +782,7 @@ El runner valida el schema. Si falta o es inválido, se cruza con el exit code y
 | RATE_LIMITED | runner | 429 o patrones de rate limit | Sí: espera corta + reintento una vez; después fallback |
 | MODEL_UNAVAILABLE | runner | modelo inválido o no disponible (agy da un error explícito) | Sí |
 | PROVIDER_UNAVAILABLE | runner | red o auth caídas | Sí |
-| PERMISSION_FAILURE | runner | Devin: stdout vacío + `rejected a tool call`; agy: `denied_actions` | Devin: reintento con `dangerous` (D4); otros: fallback |
+| PERMISSION_FAILURE | runner | Devin: export y `rejected a tool call`; agy: `denied_actions` | Devin: allowlist específica o `stop-reed` (D4); otros: fallback/continuation según cambios |
 | TIMEOUT | runner | wall-clock o idle | Sí, con continuation si hubo cambios |
 | UNKNOWN_FAILURE | runner | nada de lo anterior | Se pregunta a Reed |
 
@@ -860,13 +861,13 @@ Qué se hace y por qué, qué NO se hace y las alternativas descartadas.
 
 ## 19. Seguridad y git safety
 
-Contexto: hay tres workers sin aislamiento real. Codex corre con bypass (D3), Devin puede pasar a `dangerous` (D4) y agy no tiene límite de workspace (D5). La defensa es la suma de capas.
+Contexto: los valores predeterminados omiten el sandbox de Codex (D3) y los permisos de agy (D5). Devin usa `smart` y solo pasa a `dangerous` por decisión explícita de Reed (D4). La defensa es la suma de capas. `permissions.codex.bypassSandbox: false` fuerza `workspace-write`; `permissions.agy.skipPermissions: false` omite su flag de bypass.
 
 ### 19.1 Preflight
 - `git status --porcelain`. Si hay cambios del usuario, se muestran y se pide confirmación antes de delegar.
 - Se verifica que no haya un rebase o merge en curso.
 - **Lock** `.orchestrator/lock` con PID, runId y timestamp: un solo escritor.
-- **Snapshot:** HEAD, branch, `git stash create` (hash de respaldo **sin tocar el working tree**), lista de archivos untracked, y hash de lockfiles y manifests.
+- **Snapshot:** HEAD, branch, `git stash create` (hash de respaldo **sin tocar el working tree**), hashes de archivos dirty, copia de untracked hasta 5 MiB por archivo y 50 MiB en total (se listan los omitidos), y hash de lockfiles y manifests.
 - `.orchestrator/` se agrega a `.git/info/exclude`.
 
 ### 19.2 Durante la ejecución
@@ -996,7 +997,7 @@ Se construye con **Skill Creator**, en Claude Code CLI en la PC Windows (esta co
 | **F2** `doctor` y `models` | `catalog.mjs` y los comandos | `doctor` reproduce los hallazgos de §3 y §5. `models refresh` genera `catalog.json` con el pool de §8 habilitado y el resto deshabilitado. Un modelo nuevo aparece con `new:true, enabled:false` |
 | **F3** Cuotas | `quota/*` y `normalize` | Codex LIVE por app-server; Claude UNKNOWN (statusline no instalada); Devin por unofficial (o fallback a capas); agy UNKNOWN. Dashboard de §11.6. Tests de normalización, umbrales, reservas y ajuste por reset |
 | **F4** Router | `router.mjs` + `route` | Tests con escenarios fijos: el ejemplo Devin 96/91% frente a Codex 95/28% elige Devin; un candidato malo con mucha cuota **no** gana; PROTECTED baja; UNKNOWN ≠ 100%; PLAN_CONTRADICTION no tiene fallback; FEATURE sin bootstrap elige Devin Sol Medium; con bootstrap alterna Sol y SWE-2 y excluye las corridas fallidas por causas externas. Salida en el formato de §9.4 |
-| **F5** Adapters y run | `adapters/*`, `packet.mjs`, `classify.mjs`, `run`, `status`, `wait` | Smoke PONG en los 3 workers. Tarea "append OK + npm test" en un repo desechable con cada worker. Devin con `smart` → bloqueo simulado → reintento con `dangerous`. agy con modelo inválido → MODEL_UNAVAILABLE |
+| **F5** Adapters y run | `adapters/*`, `packet.mjs`, `classify.mjs`, `run`, `status`, `wait` | Smoke PONG en los 3 workers. Tarea "append OK + npm test" en un repo desechable con cada worker. Devin con `smart` → bloqueo simulado → allowlist específica o STOP. agy con modelo inválido → MODEL_UNAVAILABLE |
 | **F6** Seguridad y validación | `safety.mjs`, `validate.mjs`, `preflight`, `postflight` | Tests: lock; snapshot sin tocar el working tree; detección de commit, borrado, cambio fuera de scope y comentario agregado; baseline frente a regresión |
 | **F7** Skill | `SKILL.md` + `references/*` (con Skill Creator) | SKILL.md ≤250 líneas, `disable-model-invocation: true`, `argument-hint`. Las referencias se cargan según la necesidad |
 | **F8** Historial y bootstrap | `history.mjs`, `bootstrap` | Se agrega sin datos sensibles; el router lo consulta; el bootstrap cuenta, alterna, calcula métricas y pide confirmación antes de reordenar |

@@ -26,7 +26,7 @@ function repoWithPlan() {
   const repo = mkdtempSync(join(tmpdir(), 'orch-lock-'));
   mkdirSync(join(repo, '.orchestrator', 'plans'), { recursive: true });
   const planPath = join(repo, '.orchestrator', 'plans', 'plan1.md');
-  writeFileSync(planPath, '# Plan plan1\n');
+  writeFileSync(planPath, '# Plan plan1\n## Scope\n- In scope: a.txt\n## Validation\n- Commands: `node -v`\n');
   return { repo, planPath };
 }
 

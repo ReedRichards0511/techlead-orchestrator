@@ -65,6 +65,13 @@ export function parseScope(text) {
   return result;
 }
 
+export function validatePlan(text) {
+  const errors = [];
+  if (!parseScope(text).inScope.length) errors.push('Plan needs ## Scope with a non-empty - In scope: list');
+  if (!parsePlanValidation(text).length) errors.push('Plan needs ## Validation with non-empty - Commands:');
+  return { ok: errors.length === 0, errors };
+}
+
 const normalize = (p) => p.replace(/\\/g, '/').replace(/^\.\//, '');
 
 function globToRegex(pattern) {

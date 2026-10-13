@@ -51,6 +51,21 @@ const rec = (over = {}) => ({
   ...over,
 });
 
+test('a task that passes after repairs still counts against the model problem rate', () => {
+  const record = buildRunRecord({ status: status(), verdict: 'PASS', repairs: 2, now: NOW });
+  assert.equal(record.problem, true);
+  const agg = aggregateRuns([{ ...record, problem: false }])['devin/swe-2/high/FEATURE'];
+  assert.equal(agg.problemRuns, 1);
+  assert.equal(agg.success, 1);
+});
+
+test('loading old history rebuilds aggregates that missed repairs on successful tasks', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'orch-history-repair-'));
+  const record = rec({ repairs: 1, problem: false });
+  saveHistory(dir, { ...emptyHistory(), runs: [record], aggregates: { 'devin/swe-2/high/FEATURE': { runs: 1, problemRuns: 0 } } });
+  assert.equal(loadHistory(dir).aggregates['devin/swe-2/high/FEATURE'].problemRuns, 1);
+});
+
 test('buildRunRecord keeps only the allowed fields and no absolute paths', () => {
   const r = buildRunRecord({ status: status(), verdict: 'PASS', now: NOW });
   assert.deepEqual(Object.keys(r).sort(), ['at', 'class', 'commentFlags', 'date', 'durationMin', 'key', 'permissionRetry', 'planHash', 'problem', 'repairs', 'runId', 'scopeFlags', 'status', 'verdict']);
@@ -164,7 +179,7 @@ test('loadHistory fills missing sections of an older file', () => {
   writeFileSync(join(dir, 'history.json'), JSON.stringify({ runs: [rec({ runId: 'a' })] }));
   const h = loadHistory(dir);
   assert.deepEqual(h.bootstrap, { ended: {}, resetAt: {}, promoted: {} });
-  assert.deepEqual(h.aggregates, {});
+  assert.equal(h.aggregates['devin/swe-2/high/FEATURE'].runs, 1);
   assert.equal(h.runs.length, 1);
 });
 

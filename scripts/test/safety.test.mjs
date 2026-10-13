@@ -140,6 +140,28 @@ function planFile(repo, text = planText()) {
   return p;
 }
 
+test('preflight rejects missing or unparseable scope and validation before taking a lock', async () => {
+  const plans = ['# Plan', planText().replace('In scope:', 'Files:'), planText().replace('Commands:', 'Tests:')];
+  for (const text of plans) {
+    const repo = makeRepo();
+    const r = await preflight({ repo, planPath: planFile(repo, text), config, skipBaseline: true });
+    assert.equal(r.ok, false);
+    assert.match(r.error, /plan|scope|validation/i);
+    assert.equal(readLock(repo), null);
+  }
+});
+
+test('postflight cannot approve edits when the plan scope or validation is unparseable', () => {
+  for (const text of ['# Plan', planText().replace('Commands:', 'Tests:')]) {
+    const repo = makeRepo();
+    const snapshot = takeSnapshot({ repo, planId: 'p1' });
+    write(repo, 'a.txt', 'updated\n');
+    const r = postflightChecks({ repo, snapshot, planText: text, config });
+    assert.equal(r.ok, false);
+    assert.ok(r.violations.some((v) => v.code === 'INVALID_PLAN'));
+  }
+});
+
 test('preflight on a clean repo locks, snapshots and records the baseline', async () => {
   const repo = makeRepo();
   const planPath = planFile(repo);
@@ -348,7 +370,8 @@ test('an unparsable scope is reported instead of silently passing', async () => 
   const s = await snap(repo, '# plan without a scope section\n');
   write(repo, 'a.txt', 'z\n');
   const r = check(repo, s, '# plan without a scope section\n');
-  assert.ok(r.notes.some((n) => /scope/i.test(n)));
+  assert.equal(r.ok, false);
+  assert.ok(r.violations.some((v) => v.code === 'INVALID_PLAN' && /scope/i.test(v.detail)));
 });
 
 test('scanAddedComments classifies comment styles by extension', () => {

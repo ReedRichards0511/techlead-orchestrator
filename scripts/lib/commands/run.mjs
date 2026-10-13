@@ -11,7 +11,7 @@ export async function main(args, ctx) {
   const planArg = option(args, '--plan');
   const klass = option(args, '--class');
   if (!planArg || !klass || !CLASSES[klass]) {
-    console.error(`Usage: orch run --plan <path> --class <${Object.keys(CLASSES).join('|')}> [--model id --effort e [--harness h]] [--permission mode] [--packet file | --repair points.json | --continuation state.json] [--allow-from runId] [--repo dir]`);
+    console.error(`Usage: orch run --plan <path> --class <${Object.keys(CLASSES).join('|')}> [--model id --effort e [--harness h]] [--permission mode] [--packet file | --repair points.json | --continuation state.json] [--project-rules file] [--allow-from runId] [--repo dir]`);
     if (klass && !CLASSES[klass]) console.error(`Unknown class: ${klass}`);
     return 2;
   }
@@ -76,6 +76,7 @@ export async function main(args, ctx) {
     const allowFrom = option(args, '--allow-from');
     const retry = allowFrom ? allowlistRetryOf({ repo, runId: allowFrom }) : null;
     const packetFile = option(args, '--packet');
+    const rulesFile = option(args, '--project-rules');
     const run = startRun({
       repo,
       planPath,
@@ -87,6 +88,7 @@ export async function main(args, ctx) {
       packetText: packetFile ? readFileSync(resolve(packetFile), 'utf8') : undefined,
       packetKind,
       packetData,
+      projectRules: rulesFile ? readFileSync(resolve(rulesFile), 'utf8') : undefined,
       allowExec: retry?.allowExec,
       retryOf: retry?.retryOf,
       project: option(args, '--project'),

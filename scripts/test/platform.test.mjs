@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync, existsSync, realpathSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, existsSync, realpathSync, chmodSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, delimiter } from 'node:path';
 import { resolveExecutable, stateDir, cleanEnv, isWindows } from '../lib/platform.mjs';
@@ -8,6 +8,7 @@ import { resolveExecutable, stateDir, cleanEnv, isWindows } from '../lib/platfor
 function fakeBin(dir, name) {
   const file = join(dir, isWindows ? `${name}.exe` : name);
   writeFileSync(file, '');
+  if (!isWindows) chmodSync(file, 0o755);
   return file;
 }
 
@@ -30,6 +31,26 @@ test('resolveExecutable prefers config override over PATH', () => {
 test('resolveExecutable returns null when missing', () => {
   const dir = mkdtempSync(join(tmpdir(), 'orch-plat-'));
   assert.equal(resolveExecutable('nope-not-here', { env: { PATH: dir } }), null);
+});
+
+test('POSIX resolution skips non-executable files and finds a later executable even with spaces', { skip: isWindows }, () => {
+  const root = mkdtempSync(join(tmpdir(), 'orch-path-'));
+  const first = join(root, 'not executable');
+  const second = join(root, 'working bin');
+  mkdirSync(first);
+  mkdirSync(second);
+  const invalid = fakeBin(first, 'fakecli');
+  chmodSync(invalid, 0o644);
+  const valid = fakeBin(second, 'fakecli');
+  assert.equal(resolveExecutable('fakecli', { env: { PATH: [first, second].join(delimiter) }, overrides: { fakecli: invalid } }), valid);
+});
+
+test('POSIX resolution finds ~/.local/bin when the app has a restricted PATH', { skip: isWindows }, () => {
+  const home = mkdtempSync(join(tmpdir(), 'orch-home-'));
+  const bin = join(home, '.local', 'bin');
+  mkdirSync(bin, { recursive: true });
+  const exe = fakeBin(bin, 'fakecli');
+  assert.equal(resolveExecutable('fakecli', { env: { HOME: home, PATH: '/usr/bin:/bin' } }), exe);
 });
 
 test('resolveExecutable ignores a missing override path and falls back to PATH', () => {

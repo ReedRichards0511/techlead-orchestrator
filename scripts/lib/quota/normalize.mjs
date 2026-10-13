@@ -14,8 +14,9 @@ export function levelFor(remainingPercent, thresholds) {
 }
 
 export function windowFromRemaining(remainingPercent, resetsAtSec, now) {
+  if (!Number.isFinite(remainingPercent)) return 'UNKNOWN';
   const remaining = clamp(remainingPercent, 0, 100);
-  const hasReset = typeof resetsAtSec === 'number';
+  const hasReset = Number.isFinite(resetsAtSec) && Number.isFinite(new Date(resetsAtSec * 1000).getTime());
   return {
     remainingPercent: remaining,
     usedPercent: 100 - remaining,
@@ -25,6 +26,7 @@ export function windowFromRemaining(remainingPercent, resetsAtSec, now) {
 }
 
 export function windowFromUsed(usedPercent, resetsAtSec, now) {
+  if (!Number.isFinite(usedPercent)) return 'UNKNOWN';
   return windowFromRemaining(100 - usedPercent, resetsAtSec, now);
 }
 
@@ -51,6 +53,9 @@ function windowLevel(name, w, estimatedMinutes, thresholds) {
 
 export function buildQuota({ provider, source, retrievedAt, windows, config, now, estimatedMinutes = 0 }) {
   const full = { ...emptyWindows(), ...windows };
+  for (const name of WINDOW_NAMES) {
+    if (!Number.isFinite(full[name]?.remainingPercent)) full[name] = 'UNKNOWN';
+  }
   const known = WINDOW_NAMES.filter((n) => typeof full[n] === 'object' && full[n] !== null);
   const ttl = config.quotaTtlSeconds ?? 600;
   const base = {

@@ -12,7 +12,7 @@ const repo = mkdtempSync(join(tmpdir(), 'orch-live-agy-bad-'));
 spawnSync('git', ['init', '-q'], { cwd: repo });
 mkdirSync(join(repo, '.orchestrator', 'plans'), { recursive: true });
 const planPath = join(repo, '.orchestrator', 'plans', 'bad1.md');
-writeFileSync(planPath, '# Plan bad1\n');
+writeFileSync(planPath, '# Plan bad1\n## Scope\n- In scope: a.txt\n## Validation\n- Commands: `node -v`\n');
 
 const entry = {
   id: 'agy/gemini-9-flash',

@@ -79,6 +79,6 @@ Nunca hagas nada automático y destructivo. Ante una violación grave:
 1. Muestra a Reed lo que pasó (código, archivos, hash del snapshot de `snapshots/<id>.json`).
 2. El postflight imprime los comandos de recuperación según la violación: `git log --oneline <head>..HEAD` y `git reset --soft <head>` para commits nuevos, `git switch <rama>` para un cambio de rama, `git stash list` y `git stash pop` para un stash ajeno, `git checkout <commit> -- "<archivo>"` para un borrado. **Cópialos tal cual** y explícale qué hace cada uno; `reset --soft` conserva los cambios, pero aun así es decisión de Reed.
 3. Ejecuta algo solo si Reed lo pide explícitamente, uno por uno.
-4. El respaldo (`git stash create`) cubre solo archivos trackeados; los untracked previos quedan registrados por hash, no respaldados.
+4. `git stash create` respalda los archivos trackeados. Los untracked previos se copian en `.orchestrator/snapshots/<id>/untracked/` hasta 5 MiB por archivo y 50 MiB en total. `untrackedSaved` lista los respaldados y `untrackedSkipped` los omitidos; estos últimos solo quedan registrados por hash y no tienen copia recuperable.
 
 Al cerrar, `orch unlock --yes` libera el lock. Si el lock quedó huérfano por un crash, `orch unlock` te dice quién lo tiene y si el worker sigue vivo; con un worker vivo no se libera sin `--force`, que solo usa Reed.

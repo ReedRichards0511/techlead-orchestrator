@@ -1,14 +1,15 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
+import { readJson } from './config.mjs';
 import { buildInvocation as defaultBuild, parseOutput } from './adapters/index.mjs';
 import { classifyRun, validateResult } from './classify.mjs';
 import { applyDevinAllowlist, restoreDevinAllowlist } from './devin-allow.mjs';
-import { parsePlanValidation } from './validate.mjs';
+import { parsePlanValidation, validatePlan } from './validate.mjs';
 import { gitPorcelain } from './git.mjs';
 import { renderContinuationPacket, renderPacket, renderRepairPacket } from './packet.mjs';
 import { resolveExecutable } from './platform.mjs';
 import { launchBackground, readStatus } from './proc.mjs';
-import { acquireLock, readLock } from './safety.mjs';
+import { acquireLock, readLock, workingTreeSnapshot } from './safety.mjs';
 
 const HEARTBEAT_MS = 30000;
 const ENDED = new Set(['exited', 'timeout', 'error']);
@@ -50,12 +51,18 @@ export function startRun({
   now = new Date(),
 }) {
   if (!existsSync(planPath)) throw new Error(`Plan not found: ${planPath}`);
+  const plan = validatePlan(readText(planPath));
+  if (!plan.ok) throw new Error(plan.errors.join('; '));
   const resolve = resolveExe ?? ((name) => resolveExecutable(name, { overrides: config.platformOverrides?.paths ?? {} }));
 
   if (packetKind && !PACKET_RENDERERS[packetKind]) throw new Error(`Unknown packet kind: ${packetKind} (expected repair or continuation)`);
 
   const planId = basename(planPath, '.md');
   assertWriterFree(repo, planId);
+  const preflightSnapshot = readJson(join(repo, '.orchestrator', 'snapshots', `${planId}.json`), null);
+  const recordedBaseline = baseline ?? (preflightSnapshot
+    ? JSON.stringify((preflightSnapshot.baseline ?? []).map(({ command, passed, exitCode, blocked, timedOut }) => ({ command, passed, exitCode, blocked, timedOut })))
+    : undefined);
   const repairCycle = packetKind === 'repair' ? repairCycleFor(repo, planId, config) : null;
   let runId = `${planId}-${stamp(now)}`;
   for (let n = 2; existsSync(runDirOf(repo, runId)); n++) runId = `${planId}-${stamp(now)}-${n}`;
@@ -79,14 +86,11 @@ export function startRun({
         workspace: repo,
         resultPath,
         projectRules: packetData?.projectRules ?? projectRules,
-        baseline,
+        baseline: recordedBaseline,
         config,
       }),
   );
-  const launchSnapshot = snapshot ?? (() => {
-    const porcelain = gitPorcelain(repo);
-    return porcelain === null ? null : { porcelain };
-  })();
+  const launchSnapshot = snapshot ?? workingTreeSnapshot(repo);
   if (launchSnapshot) writeFileSync(join(runDir, 'snapshot.json'), JSON.stringify(launchSnapshot, null, 2));
 
   const inv = buildInvocation({ entry, effort, packetPath, repo, config, permission, runDir, resultPath });
@@ -222,8 +226,15 @@ export function getStatus({ repo, runId, rateRetries = 0, now = new Date() }) {
   const snapshot = existsSync(join(runDir, 'snapshot.json')) ? JSON.parse(readText(join(runDir, 'snapshot.json'))) : null;
   let diffEmpty = null;
   if (snapshot && typeof snapshot.porcelain === 'string') {
-    const current = gitPorcelain(repo);
-    diffEmpty = current === null ? null : current === snapshot.porcelain;
+    if (snapshot.dirtyHashes) {
+      const current = workingTreeSnapshot(repo);
+      diffEmpty = current === null ? null : current.head === snapshot.head
+        && current.porcelain === snapshot.porcelain
+        && JSON.stringify(current.dirtyHashes) === JSON.stringify(snapshot.dirtyHashes);
+    } else {
+      const current = gitPorcelain(repo);
+      diffEmpty = current === null ? null : current !== snapshot.porcelain ? false : current === '' ? true : null;
+    }
   }
   const classification = classifyRun({
     harness,

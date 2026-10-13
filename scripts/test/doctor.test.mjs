@@ -71,6 +71,12 @@ test('failed auth marks the worker as unusable', async () => {
   assert.equal(r.workers.devin, true);
 });
 
+test('Claude auth status exit zero with loggedIn=false is not an authenticated architect', async () => {
+  const r = await runDoctor(base({ run: { 'claude auth status': { status: 0, stdout: '{"loggedIn":false}', stderr: '' } } }));
+  assert.equal(r.clis.claude.auth, 'failed');
+  assert.equal(r.ok, false);
+});
+
 test('version drift from the verified one is a warning, not a failure', async () => {
   const r = await runDoctor(base({ run: { 'codex --version': { status: 0, stdout: 'codex-cli 0.161.0\n', stderr: '' } } }));
   assert.equal(r.clis.codex.version, '0.161.0');

@@ -26,7 +26,7 @@ function repoWithPlan() {
   const repo = mkdtempSync(join(tmpdir(), 'orch-run-'));
   mkdirSync(join(repo, '.orchestrator', 'plans'), { recursive: true });
   const planPath = join(repo, '.orchestrator', 'plans', 'plan1.md');
-  writeFileSync(planPath, '# Plan plan1\n');
+  writeFileSync(planPath, '# Plan plan1\n## Scope\n- In scope: a.txt\n## Validation\n- Commands: `node -v`\n');
   return { repo, planPath };
 }
 
@@ -218,6 +218,13 @@ test('startRun fails when the plan does not exist', () => {
   );
 });
 
+test('startRun rejects a malformed plan before creating worker state', () => {
+  const { repo, planPath } = repoWithPlan();
+  writeFileSync(planPath, '# Plan without validation');
+  assert.throws(() => startRun({ repo, planPath, klass: 'SMALL_FIX', entry: entry(), effort: 'medium', config }), /Plan needs/);
+  assert.equal(existsSync(join(repo, '.orchestrator', 'runs')), false);
+});
+
 test('a failure after the worker touched the tree is DURING_WORK', async () => {
   const { repo, planPath } = repoWithPlan();
   spawnSync('git', ['init', '-q'], { cwd: repo });
@@ -248,6 +255,48 @@ test('a failure with an untouched tree is BEFORE_WORK and falls back', async () 
   const st = await waitRun({ repo, runId: run.runId, timeoutMs: 15000 });
   assert.equal(st.classification.phase, 'BEFORE_WORK');
   assert.equal(st.classification.action, 'fallback');
+});
+
+test('edits to an already dirty tracked or untracked file require continuation', async () => {
+  for (const tracked of [true, false]) {
+    const { repo, planPath } = repoWithPlan();
+    spawnSync('git', ['init', '-q'], { cwd: repo });
+    writeFileSync(join(repo, 'a.txt'), 'original');
+    if (tracked) {
+      spawnSync('git', ['add', 'a.txt'], { cwd: repo });
+      spawnSync('git', ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-qm', 'initial'], { cwd: repo });
+    }
+    writeFileSync(join(repo, 'a.txt'), 'user changes');
+    const before = gitPorcelain(repo);
+    const run = startRun({
+      repo, planPath, klass: 'SMALL_FIX', entry: entry('codex'), effort: 'medium', config,
+      resolveExe: () => node,
+      buildInvocation: fakeBuilder("require('fs').writeFileSync('a.txt','worker changes');process.exit(3)"),
+    });
+    const st = await waitRun({ repo, runId: run.runId, timeoutMs: 15000 });
+    assert.equal(gitPorcelain(repo), before);
+    assert.equal(st.classification.phase, 'DURING_WORK');
+    assert.equal(st.classification.action, 'continuation');
+  }
+});
+
+test('all generated packet kinds carry project rules and the recorded validation baseline', async () => {
+  for (const packetKind of [undefined, 'repair', 'continuation']) {
+    const { repo, planPath } = repoWithPlan();
+    const dir = join(repo, '.orchestrator', 'snapshots');
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'plan1.json'), JSON.stringify({ baseline: [{ command: 'node -v', passed: false, exitCode: 1, tail: 'old failure' }] }));
+    const run = startRun({
+      repo, planPath, klass: 'SMALL_FIX', entry: entry('codex'), effort: 'medium', config,
+      packetKind, packetData: packetKind === 'repair' ? { points: [{ file: 'a.txt', issue: 'wrong value' }] } : {},
+      projectRules: 'Keep the project API stable', resolveExe: () => node, buildInvocation: fakeBuilder('process.exit(0)'),
+    });
+    const packet = readFileSync(join(run.runDir, 'packet.md'), 'utf8');
+    assert.match(packet, /PROJECT_RULES: Keep the project API stable/);
+    assert.match(packet, /BASELINE:.*node -v.*"passed":false/);
+    assert.doesNotMatch(packet, /old failure/);
+    await waitRun({ repo, runId: run.runId, timeoutMs: 15000 });
+  }
 });
 
 test('gitPorcelain ignores the .orchestrator directory', async () => {

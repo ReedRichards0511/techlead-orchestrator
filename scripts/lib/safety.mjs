@@ -4,7 +4,7 @@ import { spawnSync } from 'node:child_process';
 import { homedir } from 'node:os';
 import { basename, dirname, extname, join, resolve, sep } from 'node:path';
 import { isAlive } from './proc.mjs';
-import { compareToBaseline, matchScope, parsePlanValidation, parseScope, runValidation } from './validate.mjs';
+import { compareToBaseline, matchScope, parsePlanValidation, parseScope, runValidation, validatePlan } from './validate.mjs';
 
 void compareToBaseline;
 
@@ -65,6 +65,15 @@ export function statusEntries(repo) {
     entries.push({ x, y, path, orig });
   }
   return entries;
+}
+
+export function workingTreeSnapshot(repo, entries = statusEntries(repo)) {
+  if (!isGitRepo(repo)) return null;
+  return {
+    head: gitOut(repo, ['rev-parse', 'HEAD']),
+    porcelain: entries.map((e) => `${e.x}${e.y} ${e.path}`).sort().join('\n'),
+    dirtyHashes: Object.fromEntries(entries.map((e) => [e.path, hashFile(repo, e.path)])),
+  };
 }
 
 export function excludePath(repo) {
@@ -200,24 +209,20 @@ export function takeSnapshot({ repo, planId, now = new Date() }) {
   const entries = statusEntries(repo);
   const tracked = entries.filter((e) => !(e.x === '?' && e.y === '?'));
   const stashRaw = tracked.length ? gitOut(repo, ['stash', 'create']) : null;
-  const dirtyHashes = {};
-  for (const e of entries) dirtyHashes[e.path] = hashFile(repo, e.path);
   const stashList = gitOut(repo, ['stash', 'list', '--format=%H']);
   const untrackedPaths = entries.filter((e) => e.x === '?' && e.y === '?').map((e) => e.path).sort();
   const untrackedCopy = saveUntracked(repo, planId, untrackedPaths);
   return {
     planId,
     createdAt: now.toISOString(),
-    head: gitOut(repo, ['rev-parse', 'HEAD']),
+    ...workingTreeSnapshot(repo, entries),
     branch: gitOut(repo, ['rev-parse', '--abbrev-ref', 'HEAD']),
     stashHash: stashRaw ? stashRaw.trim() : null,
     stashList: stashList ? stashList.split(/\r?\n/).filter(Boolean) : [],
-    porcelain: entries.map((e) => `${e.x}${e.y} ${e.path}`).sort().join('\n'),
     dirtyFiles: tracked.map((e) => e.path).sort(),
     untracked: untrackedPaths,
     untrackedSaved: untrackedCopy.saved,
     untrackedSkipped: untrackedCopy.skipped,
-    dirtyHashes,
     guarded: guardedHashes(repo),
     manifests: manifestHashes(repo),
     baseline: [],
@@ -227,6 +232,8 @@ export function takeSnapshot({ repo, planId, now = new Date() }) {
 export async function preflight({ repo, planPath, config, acceptDirty = false, skipBaseline = false, now = new Date() }) {
   const planId = basename(planPath, '.md');
   if (!existsSync(planPath)) return { ok: false, error: `Plan not found: ${planPath}` };
+  const plan = validatePlan(readFileSync(planPath, 'utf8'));
+  if (!plan.ok) return { ok: false, error: plan.errors.join('; ') };
   if (!isGitRepo(repo)) return { ok: false, error: `Not a git repository: ${repo}` };
   const op = inProgressOperation(repo);
   if (op) return { ok: false, error: `A ${op} is in progress; finish or abort it first` };
@@ -357,6 +364,8 @@ export function postflightChecks({ repo, snapshot, planText, config }) {
   const recovery = [];
   const notes = [];
   const add = (code, severity, detail, path) => violations.push({ code, severity, detail, ...(path ? { path } : {}) });
+  const plan = validatePlan(planText);
+  if (!plan.ok) add('INVALID_PLAN', 'violation', plan.errors.join('; '));
 
   const head = gitOut(repo, ['rev-parse', 'HEAD']);
   if (snapshot.head && head !== snapshot.head) {
@@ -376,7 +385,6 @@ export function postflightChecks({ repo, snapshot, planText, config }) {
   }
 
   const scope = parseScope(planText);
-  if (!scope.inScope.length) notes.push('The plan has no parsable "In scope" list: scope checks are limited');
   const base = snapshot.stashHash ?? snapshot.head;
   const changedFiles = changedSinceSnapshot(repo, snapshot);
 

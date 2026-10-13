@@ -100,6 +100,10 @@ export function classifyRun(input) {
   const { state, harness, result, resultInvalid, parsed = {} } = input;
   const detail = (d) => ({ detail: d });
 
+  if (result?.status === 'PLAN_CONTRADICTION') {
+    return { status: 'PLAN_CONTRADICTION', phase: null, fallback: false, action: 'stop-opus', ...detail('worker reported a plan contradiction') };
+  }
+
   if (state === 'timeout') return { ...failover('TIMEOUT', input), ...detail('wall-clock or idle timeout') };
   if (state === 'error') return { ...failover('EXECUTION_FAILURE', input), ...detail('worker could not be spawned') };
 
@@ -110,6 +114,9 @@ export function classifyRun(input) {
   if (result) {
     switch (result.status) {
       case 'SUCCESS':
+        if (input.exitCode !== 0) {
+          return { ...failover('EXECUTION_FAILURE', input), ...detail(`worker reported SUCCESS but exited with code ${input.exitCode ?? 'unknown'}`) };
+        }
         if (harness === 'codex' && parsed.sawEvents && !parsed.completed) {
           return { ...failover('EXECUTION_FAILURE', input), ...detail('codex reported SUCCESS but its run never completed') };
         }
@@ -121,8 +128,6 @@ export function classifyRun(input) {
           ...(input.diffEmpty === true ? { noChanges: true } : {}),
           ...detail('result.json reports SUCCESS'),
         };
-      case 'PLAN_CONTRADICTION':
-        return { status: 'PLAN_CONTRADICTION', phase: null, fallback: false, action: 'stop-opus', ...detail('worker reported a plan contradiction') };
       case 'VALIDATION_FAILURE':
         return { status: 'VALIDATION_FAILURE', phase: null, fallback: false, action: 'audit', ...detail('validation regressions reported') };
       default:

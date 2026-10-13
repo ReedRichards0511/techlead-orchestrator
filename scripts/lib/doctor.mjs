@@ -16,7 +16,7 @@ const PENDING = [
   ['P4', 'codex exec resume <thread_id> works with stdin'],
   ['P5', 'Monitor available in Claude Desktop'],
   ['P6', 'Devin stderr patterns for quota, rate limit and model unavailable'],
-  ['P7', 'Full macOS validation'],
+  ['P7', 'Live macOS runs with workers and Claude Desktop'],
   ['P8', 'Statusline runs in Claude Desktop'],
 ].map(([id, title]) => ({ id, title, status: 'unverified' }));
 
@@ -50,6 +50,13 @@ export async function runDoctor({ run, paths, env = process.env, catalog = null,
     if (AUTH_COMMANDS[name]) {
       const a = await run(exe, AUTH_COMMANDS[name]);
       auth = a.status === 0 ? 'ok' : 'failed';
+      if (a.status === 0 && name === 'claude') {
+        try {
+          auth = JSON.parse(a.stdout).loggedIn === true ? 'ok' : 'failed';
+        } catch {
+          auth = 'unverified';
+        }
+      }
     }
     clis[name] = { found: true, path: exe, version, auth };
   }
@@ -63,7 +70,8 @@ export async function runDoctor({ run, paths, env = process.env, catalog = null,
 
   const age = catalog?.generatedAt ? Math.floor((now - new Date(catalog.generatedAt)) / 86400000) : null;
 
-  const ok = session.kind !== 'cloud' && git.status === 0 && nodeMajor >= 20 && Object.values(workers).some(Boolean);
+  const ok = session.kind !== 'cloud' && git.status === 0 && nodeMajor >= 20
+    && clis.claude.found && clis.claude.auth === 'ok' && Object.values(workers).some(Boolean);
 
   return {
     ok,

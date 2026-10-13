@@ -10,7 +10,7 @@ El runner (`scripts/orch.mjs`) es un único programa Node sin dependencias. No u
 - Git.
 - Claude Code (CLI o Desktop, sesión **local**; en cloud/Cowork no puede lanzar workers).
 - Los CLIs de los workers que quieras usar, con sesión iniciada: `devin`, `codex` y `agy` (Antigravity). Los que falten simplemente no se ofrecen en el routing; `orch doctor` dice cuáles hay.
-- Probado en **Windows 11**. macOS: sin verificar.
+- Probado con workers reales en **Windows 11**. En **macOS arm64**, suite automática con workers simulados; quedan pendientes las pruebas manuales con los CLIs autenticados y Claude Desktop.
 
 ## Instalación
 
@@ -38,6 +38,15 @@ El estado local (configuración, catálogo, cuotas, historial) se crea solo en `
 
 Reinicia Claude Code para que aparezca `/orchestrator`.
 
+Si ya clonaste el repo en otra carpeta de macOS, puedes usar un enlace en lugar de clonarlo otra vez (el destino debe estar libre):
+
+```bash
+mkdir -p "$HOME/.claude/skills"
+ln -s "/ruta/al/techlead-orchestrator" "$HOME/.claude/skills/orchestrator"
+```
+
+En macOS el runner encuentra ejecutables en `PATH`, `~/.local/bin`, `/opt/homebrew/bin`, `/usr/local/bin` y `~/.devin/bin`. Si Desktop no los ve, configura `platformOverrides.paths` con las rutas absolutas que devuelve `command -v <CLI>`. `doctor` exige una sesión autenticada de Claude; si indica `failed`, ejecuta `claude auth login`.
+
 ## Uso
 
 La skill solo la invoca el usuario (`disable-model-invocation: true`). Abre la sesión **dentro del repo donde se va a implementar**:
@@ -53,6 +62,8 @@ La skill solo la invoca el usuario (`disable-model-invocation: true`). Abre la s
 
 `implement` sigue 15 pasos: doctor, plan en `.orchestrator/plans/`, clasificación, cuota, routing, preflight (lock + snapshot + baseline de validación), lanzamiento, espera, postflight, auditoría (máximo 2 ciclos de repair) y cierre. **Nunca hace commit.** El detalle está en `SKILL.md` y `references/`.
 
+El lanzamiento recibe el extracto de reglas con `--project-rules <archivo>` y carga automáticamente el baseline del preflight. El plan debe incluir `## Scope` con `- In scope:` y `## Validation` con `- Commands:`, ambos no vacíos; el runner rechaza planes que no pueda comprobar.
+
 ## Reglas que impone el runner
 
 - Un solo escritor por working tree (lock atómico).
@@ -60,6 +71,8 @@ La skill solo la invoca el usuario (`disable-model-invocation: true`). Abre la s
 - Los workers no hacen commit ni agregan comentarios al código; el postflight lo comprueba.
 - Cuota desconocida nunca se trata como 100%. Nunca se usan los reset credits de Codex.
 - No se guardan ni se muestran emails, tokens, API keys ni IDs de cuenta. `history.json` no contiene prompts, código ni rutas.
+
+El ahorro de tokens sigue sin estar medido por tarea: el runner evita llamadas LLM para routing y no copia el plan en el packet, pero esto no demuestra un porcentaje de ahorro. El dashboard informa cuota disponible, no consumo exacto por implementación.
 
 ## Desarrollo y tests
 

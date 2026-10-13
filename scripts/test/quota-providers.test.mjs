@@ -39,6 +39,16 @@ test('parseRateLimits maps primary to short and secondary to weekly', () => {
   assert.equal(q.freshness, 'LIVE');
 });
 
+test('Codex missing usage is unknown while a known exhausted window still blocks routing', () => {
+  const result = { rateLimits: { primary: { usedPercent: null }, secondary: { usedPercent: undefined } } };
+  const q = parseRateLimits(result, { now, config: cfg });
+  assert.equal(q.health, 'UNKNOWN');
+  assert.equal(q.available, false);
+  assert.equal(q.windows.short, 'UNKNOWN');
+  result.rateLimits.secondary.usedPercent = 100;
+  assert.equal(parseRateLimits(result, { now, config: cfg }).health, 'EXHAUSTED');
+});
+
 test('parseRateLimits never exposes reset credits or account ids', () => {
   const text = JSON.stringify(parseRateLimits(sample(), { now, config: cfg }));
   for (const banned of ['secret-credit-id', 'acct-secret', 'rateLimitResetCredits', 'availableCount', 'accountId']) {

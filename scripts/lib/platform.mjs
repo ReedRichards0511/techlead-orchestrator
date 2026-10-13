@@ -1,4 +1,4 @@
-import { existsSync, statSync } from 'node:fs';
+import { accessSync, constants, existsSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, delimiter } from 'node:path';
 
@@ -9,6 +9,7 @@ const WIN_EXTS = ['.exe', '.com'];
 
 function isFile(p) {
   try {
+    if (!isWindows) accessSync(p, constants.X_OK);
     return statSync(p).isFile();
   } catch {
     return false;

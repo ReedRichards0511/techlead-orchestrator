@@ -56,6 +56,25 @@ test('a valid SUCCESS result goes to postflight', () => {
   assert.equal(r.action, 'postflight');
 });
 
+test('a SUCCESS report cannot hide a non-zero worker exit', () => {
+  for (const harness of ['devin', 'codex', 'agy']) {
+    for (const exitCode of [9, null]) {
+      const r = classifyRun(base({ harness, result: okResult(), exitCode, diffEmpty: false }));
+      assert.equal(r.status, 'EXECUTION_FAILURE', harness);
+      assert.equal(r.action, 'continuation', harness);
+    }
+  }
+});
+
+test('a plan contradiction survives a timeout or spawn error without fallback', () => {
+  for (const state of ['timeout', 'error']) {
+    const r = classifyRun(base({ state, result: okResult({ status: 'PLAN_CONTRADICTION' }) }));
+    assert.equal(r.status, 'PLAN_CONTRADICTION');
+    assert.equal(r.action, 'stop-opus');
+    assert.equal(r.fallback, false);
+  }
+});
+
 test('PLAN_CONTRADICTION never falls back', () => {
   const r = classifyRun(
     base({

@@ -48,12 +48,12 @@ Qué se hace y por qué, qué NO se hace y las alternativas descartadas.
 
 ## Formato que parsea el runner
 
-El preflight y el postflight leen solo dos secciones. Si el formato difiere, quedan vacías y se pierde el check:
+El preflight, el lanzamiento y el postflight exigen dos secciones parseables y no vacías. Si faltan o el formato difiere, la corrida se rechaza:
 
 - `## Scope`: líneas `- In scope: a, b, c` y `- Out of scope: ...` (valores separados por coma, con o sin backticks), o una lista anidada debajo de cada una. Se aceptan carpetas (`src/auth/`) y globs (`src/**/*.ts`). Todo archivo tocado fuera de "In scope" se marca para la auditoría.
 - `## Validation`: `- Commands:` seguido de comandos entre backticks en la misma línea, separados por `;`, o una lista anidada. Son comandos **reales** que ya verificaste en el repo.
 
-Los comandos de validación se ejecutan con un shell real (`cmd.exe` en Windows). Los escribes tú, no el worker: no copies texto no confiable del requerimiento dentro de ellos. Cualquier comando que contenga un `forbiddenCommands` (`git commit`, `npm publish`, ...) se bloquea.
+Los comandos de validación se ejecutan con un shell real (`cmd.exe` en Windows, `sh` en macOS/Linux). Los escribes tú, no el worker: no copies texto no confiable del requerimiento dentro de ellos. Cualquier comando que contenga un `forbiddenCommands` (`git commit`, `npm publish`, ...) se bloquea.
 
 ## Cómo escribir un buen plan
 
