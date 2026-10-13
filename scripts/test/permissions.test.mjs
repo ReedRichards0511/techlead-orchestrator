@@ -156,3 +156,23 @@ test('parseDevinExport reports a rejected non-shell tool by its name', () => {
   ]);
   assert.deepEqual(parseDevinExport(file).rejected, [{ tool: 'ask_user_question', command: null }]);
 });
+
+test('parseDevinExport extracts only numeric token metrics without exporting session content', () => {
+  const file = exportFile([]);
+  writeFileSync(file, JSON.stringify({
+    session_id: 'private-session',
+    steps: [{ message: 'private prompt' }],
+    final_metrics: { total_prompt_tokens: 4322117, total_completion_tokens: 22987, total_cached_tokens: 4187604, account: 'private-account' },
+  }));
+  assert.deepEqual(parseDevinExport(file).usage, { source: 'devin-export', promptTokens: 4322117, completionTokens: 22987, cachedTokens: 4187604 });
+  assert.doesNotMatch(JSON.stringify(parseDevinExport(file)), /private/);
+});
+
+test('parseDevinExport leaves missing or invalid token counts unknown and preserves zero', () => {
+  const file = exportFile([]);
+  assert.equal(parseDevinExport(file).usage, undefined);
+  writeFileSync(file, JSON.stringify({ final_metrics: { total_prompt_tokens: '100', total_completion_tokens: -1, total_cached_tokens: Number.MAX_SAFE_INTEGER + 1 } }));
+  assert.equal(parseDevinExport(file).usage, undefined);
+  writeFileSync(file, JSON.stringify({ final_metrics: { total_completion_tokens: 0 } }));
+  assert.deepEqual(parseDevinExport(file).usage, { source: 'devin-export', completionTokens: 0 });
+});

@@ -31,5 +31,5 @@ export function build({ entry, effort, packetPath, repo, config, permission, run
 export function parse({ stdout = '', stderr = '', runDir }) {
   const session = runDir ? parseDevinExport(join(runDir, EXPORT_NAME)) : { rejected: [] };
   const blocked = BLOCK.test(stderr) || session.rejected.length > 0;
-  return { blocked, blockedCalls: session.rejected, text: stdout.trim() };
+  return { blocked, blockedCalls: session.rejected, text: stdout.trim(), ...(session.usage ? { usage: session.usage } : {}) };
 }

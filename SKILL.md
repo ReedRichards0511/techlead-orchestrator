@@ -20,7 +20,7 @@ Cada una existe porque romperla ya causó, o puede causar, daño real.
 - **Opus 5.5 solo corre aquí.** Nunca lo delegues a otro harness.
 - **Los workers no agregan comentarios al código y no hacen commit.** Tú tampoco: no hay commit en este flujo salvo que Reed lo pida aparte.
 - **No confíes en el resumen del worker.** Audita el diff y las validaciones tú mismo (`references/audit-checklist.md`).
-- **Cuota:** nunca uses los reset credits de Codex. UNKNOWN no es 100%. No muestres emails, tokens, API keys ni IDs de cuenta.
+- **Cuota:** nunca uses los reset credits de Codex. UNKNOWN no es 100%. No muestres emails, tokens de acceso, API keys ni IDs de cuenta.
 - **Daño irreversible:** ante una violación grave solo muestras a Reed los comandos de recuperación; no ejecutas nada destructivo por tu cuenta.
 - **No inventes flags.** Si un CLI cambió, manda su salida real; `orch doctor` compara versiones.
 
@@ -45,8 +45,8 @@ Sin `implement`, esta skill solo informa: no escribe planes ni lanza workers.
 Sigue los pasos en orden. Lee cada referencia solo cuando el paso la nombre.
 
 1. **Doctor rápido.** `orch doctor --json`. Si la sesión no es local (cloud/Cowork) o falta un CLI que necesitas, aborta y dilo.
-2. **Entender.** Lee el requerimiento y todo lo que Reed adjuntó (documentos, Figma, capturas): son la fuente final, no los reinterpretes ni los cuestiones. Pregunta **solo** lo que bloquea un criterio de aceptación o cambia el diseño; lo demás decídelo tú y déjalo escrito en el plan. Si un criterio vive fuera de este repo (otro repo, un servicio, contenido de un tercero), anótalo en la sección "Criterios fuera de este repo" del plan y dile a Reed desde ya que no lo cubre este run.
-3. **Reglas del proyecto.** Lee `CLAUDE.md`, `AGENTS.md`, `.claude/skills` y README del repo, solo lo relevante a la tarea. Guarda un extracto breve en `.orchestrator/plans/<id>-project-rules.md`: pásalo con `--project-rules` en cada run; es el `PROJECT_RULES` del packet.
+2. **Entender.** Lee el requerimiento y todo lo que Reed adjuntó (documentos, Figma, capturas): son la fuente final, no los reinterpretes ni los cuestiones. Si hay una referencia visual externa, resuélvela tú y lleva al plan los tokens, estados, medidas y rutas locales de assets necesarios; no copies dumps completos del MCP. El worker implementa con ese contexto y tú comparas con la referencia. Sin referencia externa, sigue los patrones del repo: Figma y MCP no son requisitos. Pregunta **solo** lo que bloquea un criterio de aceptación o cambia el diseño; lo demás decídelo tú y déjalo escrito en el plan. Si un criterio vive fuera de este repo (otro repo, un servicio, contenido de un tercero), anótalo en la sección "Criterios fuera de este repo" del plan y dile a Reed desde ya que no lo cubre este run.
+3. **Reglas del proyecto.** Lee `CLAUDE.md`, `AGENTS.md`, `.claude/skills` y README del repo, solo lo relevante a la tarea. Guarda un extracto breve en `.orchestrator/plans/<id>-project-rules.md`: pásalo con `--project-rules` en cada run; es el `PROJECT_RULES` del packet. Transfiere las convenciones que necesita el implementador; deja resueltas en el plan las consultas externas que te corresponden a ti.
 4. **Inspeccionar el repo.** Arquitectura, patrones y los **comandos reales de validación** (package.json, Gradle, Xcode, Makefile, CI). No supongas `npm test`: verifícalo.
 5. **Plan.** Escribe `<repo>/.orchestrator/plans/<id>.md` siguiendo `references/plan-template.md`. El runner exige `## Scope` y `## Validation` parseables y no vacíos; si faltan, no lanza el worker.
 6. **Clasificar** la tarea y estimar archivos (`references/routing-policy.md`).
@@ -62,8 +62,8 @@ Sigue los pasos en orden. Lee cada referencia solo cuando el paso la nombre.
 12. **Postflight.** `orch postflight <runId> --json`: checks deterministas y re-validación frente al baseline.
 13. **Decidir según el estado** (tabla siguiente).
 14. **Auditar** (SUCCESS o VALIDATION_FAILURE): PASS o REPAIR_REQUIRED, máximo 2 ciclos de repair (el runner rechaza el tercero: si falla, no insistas, replanifica o pregunta a Reed). Escribe el veredicto en `runs/<runId>/audit.md`.
-    - **14b. Verificación visual (opcional).** Solo si el plan trae una referencia visual (Figma) o texto que debe coincidir con un documento: captura la pantalla en desktop y mobile y compáralas con la referencia; el texto, línea por línea contra la fuente. Reporta lo comprobado (por ejemplo "94/94 líneas") y las diferencias. Sin referencia en el plan, sáltalo.
-15. **Cerrar.** `orch unlock --yes` y registra la corrida **original** (no los repairs) con `orch history record <runId> --verdict <PASS|REPAIR_REQUIRED> [--repairs N]`; si terminó en fallo (PLAN_CONTRADICTION, QUOTA, etc.) no lleva `--verdict`. Excepción: un PERMISSION_FAILURE que auditaste tú (la vía 3 de la nota de abajo) sí lleva `--verdict`; queda registrado como `permissionRetry: blocked` y no penaliza al modelo. Resume a Reed: veredicto, archivos tocados, validaciones, routing usado, cuota disponible (consumo por tarea no medido), los `restoreSteps` del dev server si los hubo, los criterios fuera del repo y pendientes. **No hagas commit.**
+    - **14b. Verificación visual (opcional).** Solo si el plan trae una referencia visual (Figma, captura u otra fuente) o texto que debe coincidir con un documento: captura los entornos y tamaños indicados en el plan y compáralos con la referencia; el texto, línea por línea contra la fuente. Reporta lo comprobado (por ejemplo "94/94 líneas") y las diferencias. Sin referencia en el plan, sáltalo.
+15. **Cerrar.** `orch unlock --yes` y registra la corrida **original** (no los repairs) con `orch history record <runId> --verdict <PASS|REPAIR_REQUIRED> [--repairs N] --json`; si terminó en fallo (PLAN_CONTRADICTION, QUOTA, etc.) no lleva `--verdict`. Excepción: un PERMISSION_FAILURE que auditaste tú (la vía 3 de la nota de abajo) sí lleva `--verdict`; queda registrado como `permissionRetry: blocked` y no penaliza al modelo. Resume a Reed: veredicto, archivos tocados, validaciones, routing usado, cuota disponible, tokens del worker por corrida (`orch status`/`wait` → `usage`, si hay export de Devin), los `restoreSteps` del dev server si los hubo, los criterios fuera del repo y pendientes. Si hubo reintentos o repairs, incluye sus métricas disponibles al informar el consumo del worker de esta tarea. Datos ausentes son UNKNOWN; no equivalen a cero. No presentes esos tokens como consumo total de la tarea ni como ahorro: falta medir al arquitecto y comparar con un baseline equivalente (`references/quota-policy.md`). **No hagas commit.**
 
 ## Qué hacer según la clasificación
 
@@ -87,7 +87,7 @@ Sigue los pasos en orden. Lee cada referencia solo cuando el paso la nombre.
 2. Una regla `allow` en su `settings.json` para ese caso, si quiere que no vuelva a preguntar (no la edites tú).
 3. Seguir sin reintento: si `git status` y el diff muestran que el worker ya escribió los archivos del plan, haz el postflight y la auditoría (las validaciones se vuelven a correr). Si faltan pasos del plan, no declares PASS: usa continuation con otro worker (`--exclude`) o espera la decisión de Reed.
 
-Dilo siempre en el resumen: la corrida terminó sin confirmación del worker.
+Describe lo ocurrido: `dangerous` significa "sin solicitudes de aprobación de herramientas". Solo di "sin resultado final del worker" si falta `result.json` o es inválido; si existe y es válido, informa su estado y el veredicto de tu auditoría.
 
 Los estados completos y sus fases están en `references/worker-contract.md`.
 

@@ -4,6 +4,7 @@ import { spawnSync } from 'node:child_process';
 import { homedir } from 'node:os';
 import { basename, dirname, extname, join, resolve, sep } from 'node:path';
 import { isAlive } from './proc.mjs';
+import { gitPaths } from './git.mjs';
 import { compareToBaseline, matchScope, parsePlanValidation, parseScope, runValidation, validatePlan } from './validate.mjs';
 
 void compareToBaseline;
@@ -52,6 +53,7 @@ export function statusEntries(repo) {
   const r = git(repo, ['status', '--porcelain', '-z', '-uall']);
   if (r.status !== 0) return [];
   const parts = r.stdout.split('\0');
+  const statePrefix = `${gitPaths(repo)?.prefix ?? ''}.orchestrator/`;
   const entries = [];
   for (let i = 0; i < parts.length; i++) {
     const s = parts[i];
@@ -61,18 +63,19 @@ export function statusEntries(repo) {
     const path = s.slice(3);
     let orig = null;
     if (x === 'R' || x === 'C' || y === 'R' || y === 'C') orig = parts[++i] ?? null;
-    if (path.startsWith('.orchestrator/')) continue;
+    if (path.startsWith(statePrefix)) continue;
     entries.push({ x, y, path, orig });
   }
   return entries;
 }
 
 export function workingTreeSnapshot(repo, entries = statusEntries(repo)) {
-  if (!isGitRepo(repo)) return null;
+  const paths = gitPaths(repo);
+  if (!paths) return null;
   return {
     head: gitOut(repo, ['rev-parse', 'HEAD']),
     porcelain: entries.map((e) => `${e.x}${e.y} ${e.path}`).sort().join('\n'),
-    dirtyHashes: Object.fromEntries(entries.map((e) => [e.path, hashFile(repo, e.path)])),
+    dirtyHashes: Object.fromEntries(entries.map((e) => [e.path, hashFile(paths.root, e.path)])),
   };
 }
 
@@ -153,23 +156,26 @@ export function releaseLock({ repo, planId, force = false }) {
 }
 
 function manifestHashes(repo) {
-  const listing = gitOut(repo, ['ls-files', '-co', '--exclude-standard']) ?? '';
+  const paths = gitPaths(repo);
+  if (!paths) return {};
+  const listing = gitOut(paths.root, ['ls-files', '-z', '-co', '--exclude-standard']) ?? '';
   const out = {};
-  for (const path of listing.split(/\r?\n/)) {
-    if (path && MANIFEST_NAMES.has(basename(path)) && !path.startsWith('.orchestrator/')) out[path] = hashFile(repo, path);
+  for (const path of listing.split('\0')) {
+    if (path && MANIFEST_NAMES.has(basename(path)) && !path.startsWith(`${paths.prefix}.orchestrator/`)) out[path] = hashFile(paths.root, path);
   }
   return out;
 }
 
 function saveUntracked(repo, planId, paths) {
   const root = untrackedDir(repo, planId);
+  const gitRoot = gitPaths(repo)?.root ?? repo;
   if (paths.length) ensureExcluded(repo);
   rmSync(join(root, '..'), { recursive: true, force: true });
   const saved = [];
   const skipped = [];
   let total = 0;
   for (const path of paths) {
-    const from = join(repo, path);
+    const from = join(gitRoot, path);
     try {
       const size = statSync(from).size;
       if (size > MAX_HASH_BYTES || total + size > MAX_UNTRACKED_TOTAL_BYTES) {
@@ -193,8 +199,9 @@ function guardedHashes(repo) {
   const add = (name, full) => {
     out[name] = hashFile('', full);
   };
-  add('repo:.git/config', join(repo, '.git', 'config'));
-  const hooks = join(repo, '.git', 'hooks');
+  const configPath = gitOut(repo, ['rev-parse', '--git-path', 'config']);
+  if (configPath) add('repo:.git/config', resolve(repo, configPath));
+  const hooks = resolve(repo, gitOut(repo, ['rev-parse', '--git-path', 'hooks']) ?? '.git/hooks');
   if (existsSync(hooks)) {
     for (const f of readdirSync(hooks).filter((n) => !n.endsWith('.sample'))) add(`repo:.git/hooks/${f}`, join(hooks, f));
   }
@@ -313,14 +320,14 @@ export function scanAddedComments(files) {
   return found;
 }
 
-function changedSinceSnapshot(repo, snapshot) {
+function changedSinceSnapshot(repo, snapshot, gitRoot) {
   const entries = statusEntries(repo);
   const changed = [];
   const present = new Set();
   for (const e of entries) {
     present.add(e.path);
     const deleted = e.x === 'D' || e.y === 'D';
-    const hash = deleted ? null : hashFile(repo, e.path);
+    const hash = deleted ? null : hashFile(gitRoot, e.path);
     const known = Object.prototype.hasOwnProperty.call(snapshot.dirtyHashes ?? {}, e.path);
     if (known && snapshot.dirtyHashes[e.path] === hash) continue;
     const status = deleted ? 'deleted' : e.x === '?' || e.x === 'A' ? 'added' : 'modified';
@@ -328,7 +335,7 @@ function changedSinceSnapshot(repo, snapshot) {
   }
   for (const path of Object.keys(snapshot.dirtyHashes ?? {})) {
     if (present.has(path)) continue;
-    changed.push({ path, status: existsSync(join(repo, path)) ? 'modified' : 'deleted' });
+    changed.push({ path, status: existsSync(join(gitRoot, path)) ? 'modified' : 'deleted' });
   }
   return changed.sort((a, b) => a.path.localeCompare(b.path));
 }
@@ -366,6 +373,11 @@ export function postflightChecks({ repo, snapshot, planText, config }) {
   const add = (code, severity, detail, path) => violations.push({ code, severity, detail, ...(path ? { path } : {}) });
   const plan = validatePlan(planText);
   if (!plan.ok) add('INVALID_PLAN', 'violation', plan.errors.join('; '));
+  const { root: gitRoot, prefix } = gitPaths(repo) ?? { root: repo, prefix: '' };
+  const inWorkspaceScope = (path, patterns) => path.startsWith(prefix) && matchScope(path.slice(prefix.length), patterns);
+  const deletedBefore = new Set((snapshot.porcelain ?? '').split('\n').filter(l => l[0] === 'D' || l[1] === 'D').map(l => l.slice(3)));
+  const missingHashes = Object.entries(snapshot.dirtyHashes ?? {}).filter(([path, hash]) => hash === null && !deletedBefore.has(path)).map(([path]) => path);
+  if (missingHashes.length) add('SNAPSHOT_INCOMPLETE', 'violation', `Snapshot has no content hashes for: ${missingHashes.join(', ')}. It cannot prove which pre-existing files changed; audit them manually.`);
 
   const head = gitOut(repo, ['rev-parse', 'HEAD']);
   if (snapshot.head && head !== snapshot.head) {
@@ -386,14 +398,14 @@ export function postflightChecks({ repo, snapshot, planText, config }) {
 
   const scope = parseScope(planText);
   const base = snapshot.stashHash ?? snapshot.head;
-  const changedFiles = changedSinceSnapshot(repo, snapshot);
+  const changedFiles = changedSinceSnapshot(repo, snapshot, gitRoot);
 
   for (const f of changedFiles) {
-    const inScope = matchScope(f.path, scope.inScope);
+    const inScope = inWorkspaceScope(f.path, scope.inScope);
     if (f.status === 'deleted') {
       if (!inScope) {
         add('DELETED_OUT_OF_PLAN', 'grave', `Deleted a file that is not in the plan: ${f.path}`, f.path);
-        if (!(snapshot.untracked ?? []).includes(f.path)) recovery.push(`git checkout ${base} -- "${f.path}"`);
+        if (!(snapshot.untracked ?? []).includes(f.path)) recovery.push(`git -C "${gitRoot}" checkout ${base} -- "${f.path}"`);
       }
     } else if (scope.inScope.length && !inScope) {
       add('SOFT_SCOPE_VIOLATION', 'flag', `Changed a file not listed in the plan scope: ${f.path}`, f.path);
@@ -410,16 +422,16 @@ export function postflightChecks({ repo, snapshot, planText, config }) {
   for (const f of changedFiles) {
     if (!saved.has(f.path)) continue;
     const copy = join(untrackedDir(repo, snapshot.planId), f.path);
-    recovery.push(process.platform === 'win32' ? `Copy-Item -LiteralPath "${copy}" -Destination "${join(repo, f.path)}" -Force` : `cp "${copy}" "${join(repo, f.path)}"`);
+    recovery.push(process.platform === 'win32' ? `Copy-Item -LiteralPath "${copy}" -Destination "${join(gitRoot, f.path)}" -Force` : `cp "${copy}" "${join(gitRoot, f.path)}"`);
     add('UNTRACKED_CHANGED', 'flag', `A file that existed untracked before the run was ${f.status === 'deleted' ? 'deleted' : 'modified'}: ${f.path} (original saved in the snapshot)`, f.path);
   }
-  if ((snapshot.untrackedSkipped ?? []).length) notes.push(`Untracked files too large to copy into the snapshot: ${snapshot.untrackedSkipped.join(', ')}`);
+  if ((snapshot.untrackedSkipped ?? []).length) notes.push(`Untracked files not backed up (size limit or read error): ${snapshot.untrackedSkipped.join(', ')}`);
 
   const manifestsNow = manifestHashes(repo);
   const paths = new Set([...Object.keys(snapshot.manifests ?? {}), ...Object.keys(manifestsNow)]);
   for (const path of [...paths].sort()) {
     if ((snapshot.manifests ?? {})[path] === manifestsNow[path]) continue;
-    if (!matchScope(path, scope.inScope)) add('MANIFEST_CHANGED', 'violation', `Manifest or lockfile changed without the plan asking: ${path}`, path);
+    if (!inWorkspaceScope(path, scope.inScope)) add('MANIFEST_CHANGED', 'violation', `Manifest or lockfile changed without the plan asking: ${path}`, path);
   }
 
   const maxBytes = config.safety?.commentScanMaxFileBytes ?? 1000000;
@@ -429,14 +441,14 @@ export function postflightChecks({ repo, snapshot, planText, config }) {
     if (f.status === 'deleted') continue;
     const baseHasFile = base && git(repo, ['cat-file', '-e', `${base}:${f.path}`]).status === 0;
     if (baseHasFile) {
-      const diff = gitOut(repo, ['diff', '-U0', '--no-color', base, '--', f.path]) ?? '';
+      const diff = gitOut(gitRoot, ['diff', '-U0', '--no-color', base, '--', f.path]) ?? '';
       sources.push({ file: f.path, added: addedLinesFromDiff(diff) });
-      const total = numstatTotal(repo, base, f.path, false);
-      const meaningful = numstatTotal(repo, base, f.path, true);
+      const total = numstatTotal(gitRoot, base, f.path, false);
+      const meaningful = numstatTotal(gitRoot, base, f.path, true);
       if (total - meaningful > maxWs) add('WHITESPACE_ONLY', 'flag', `${total - meaningful} whitespace-only line changes in ${f.path}`, f.path);
     } else {
       try {
-        const full = join(repo, f.path);
+        const full = join(gitRoot, f.path);
         if (statSync(full).size > maxBytes) continue;
         const buf = readFileSync(full);
         if (buf.includes(0)) continue;

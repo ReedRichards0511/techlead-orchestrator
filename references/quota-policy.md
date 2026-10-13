@@ -60,4 +60,10 @@ ANTIGRAVITY   source: none            freshness: UNKNOWN
   —         UNKNOWN (reactive only)
 ```
 
-Nunca muestres emails, tokens, cookies, API keys ni IDs de cuenta, ni siquiera si aparecen en una salida cruda.
+Nunca muestres emails, tokens de acceso, cookies, API keys ni IDs de cuenta, ni siquiera si aparecen en una salida cruda.
+
+## Tokens del worker
+
+La cuota disponible y el consumo de tokens son métricas distintas. Para Devin, `orch status <runId>` y `orch wait <runId>` leen `final_metrics` del export local; `usage` contiene `source: "devin-export"` y los contadores disponibles `promptTokens`, `cachedTokens`, `completionTokens`. Solo acepta enteros no negativos; un dato ausente es UNKNOWN, no cero. No resta cache de prompt ni estima precios.
+
+`orch history record` guarda esos contadores de la corrida registrada y `orch history` los muestra por corrida. Los registros antiguos siguen funcionando sin métricas. El historial no agrega automáticamente otros intentos o repairs: al resumir una tarea con varias corridas, consulta también sus estados e incluye los consumos disponibles, indicando cualquier corrida sin métricas. Los tokens del arquitecto y de los otros harnesses aún no se miden; para demostrar ahorro hace falta un baseline equivalente que incluya toda la tarea.

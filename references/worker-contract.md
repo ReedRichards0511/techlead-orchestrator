@@ -27,6 +27,7 @@ Lo renderiza el runner; tú no lo escribes. Resumen para que sepas qué esperar 
 10. **FORBIDDEN_COMMANDS:** la lista de `config.json`.
 11. Trabaja solo dentro de `WORKSPACE`.
 12. Al terminar o detenerse escribe `RESULT_PATH` con el schema de abajo. Es obligatorio.
+13. **DESIGN_CONTEXT:** si el plan aporta una referencia visual externa, usa el contexto y los assets locales ya preparados. Solo consulta esa referencia por MCP si el plan te lo asigna; si faltan detalles necesarios de la referencia, informa PLAN_CONTRADICTION antes de editar. Sin referencia externa, sigue los patrones del repo: no requiere Figma ni MCP.
 
 El packet está en inglés porque es un prompt para el worker; el contenido de tu plan puede estar en español.
 
@@ -58,6 +59,8 @@ Variantes (misma ruta de lanzamiento, mismas políticas):
 ```
 
 El runner valida el schema. Si falta o es inválido, cruza el exit code, el stdout/stderr y el diff para clasificar (UNKNOWN_FAILURE → `ask-reed` si no hay ninguna señal). Para Devin y agy, un exit 0 sin `result.json` no es éxito.
+
+El modo `dangerous` evita solicitudes de aprobación de herramientas; no significa que falte un resultado final. El resumen solo informa "sin resultado final del worker" cuando `result.json` falta o es inválido.
 
 ## 4. Estados y fallback
 

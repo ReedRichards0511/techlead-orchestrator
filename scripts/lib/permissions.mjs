@@ -98,5 +98,10 @@ export function parseDevinExport(file) {
       rejected.push({ tool: call.function_name, command: typeof command === 'string' ? command : null });
     }
   }
-  return { found: true, rejected };
+  const usage = {};
+  for (const [key, field] of [['promptTokens', 'total_prompt_tokens'], ['completionTokens', 'total_completion_tokens'], ['cachedTokens', 'total_cached_tokens']]) {
+    const value = data?.final_metrics?.[field];
+    if (Number.isSafeInteger(value) && value >= 0) usage[key] = value;
+  }
+  return { found: true, rejected, ...(Object.keys(usage).length ? { usage: { source: 'devin-export', ...usage } } : {}) };
 }

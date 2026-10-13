@@ -4,13 +4,15 @@ Skill global de Claude Code (`/orchestrator`). **Opus 5.5 actúa como Tech Lead*
 
 El runner (`scripts/orch.mjs`) es un único programa Node sin dependencias. No usa Python ni LLM para decidir nada: routing, cuotas, locks, snapshots, postflight y clasificación de errores son deterministas.
 
+Es agnóstico al proyecto: toma del repo sus reglas, arquitectura y comandos de validación, y del plan el alcance de cada tarea. Puede usarse en distintos lenguajes y stacks sin requerir Figma ni una aplicación de UI; mantiene los requisitos de ejecución indicados abajo.
+
 ## Requisitos
 
 - Node.js **>= 20** (para correr los tests, Node >= 21 por el glob de `node --test`).
 - Git.
 - Claude Code (CLI o Desktop, sesión **local**; en cloud/Cowork no puede lanzar workers).
 - Los CLIs de los workers que quieras usar, con sesión iniciada: `devin`, `codex` y `agy` (Antigravity). Los que falten simplemente no se ofrecen en el routing; `orch doctor` dice cuáles hay.
-- Probado con workers reales en **Windows 11**. En **macOS arm64**, suite automática con workers simulados; quedan pendientes las pruebas manuales con los CLIs autenticados y Claude Desktop.
+- Probado con workers reales en **Windows 11**. En **macOS arm64**, suite automática con workers simulados y una implementación real de Devin / Sol Medium validada manualmente; quedan pendientes las pruebas reales de Codex y Antigravity en macOS.
 
 ## Instalación
 
@@ -70,9 +72,9 @@ El lanzamiento recibe el extracto de reglas con `--project-rules <archivo>` y ca
 - `PLAN_CONTRADICTION` nunca dispara fallback: vuelve a Opus.
 - Los workers no hacen commit ni agregan comentarios al código; el postflight lo comprueba.
 - Cuota desconocida nunca se trata como 100%. Nunca se usan los reset credits de Codex.
-- No se guardan ni se muestran emails, tokens, API keys ni IDs de cuenta. `history.json` no contiene prompts, código ni rutas.
+- No se guardan ni se muestran emails, tokens de acceso, API keys ni IDs de cuenta. `history.json` no contiene prompts, código ni rutas.
 
-El ahorro de tokens sigue sin estar medido por tarea: el runner evita llamadas LLM para routing y no copia el plan en el packet, pero esto no demuestra un porcentaje de ahorro. El dashboard informa cuota disponible, no consumo exacto por implementación.
+`status` y `wait` muestran los tokens que Devin exporta por corrida; `history record` los guarda y `history` los muestra. Cache, prompt y salida se conservan como contadores separados, sin estimar costos. El consumo del arquitecto y de otros harnesses sigue sin medirse; los reintentos y repairs deben incluirse al resumir la tarea. El dashboard informa cuota disponible. Estos datos todavía no demuestran un porcentaje de ahorro: hace falta un baseline equivalente.
 
 ## Desarrollo y tests
 

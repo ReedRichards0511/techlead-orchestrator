@@ -28,7 +28,9 @@ Qué se hace y por qué, qué NO se hace y las alternativas descartadas.
 - <criterio> · vive en: <otro repo / servicio / contenido de un tercero> · quién lo cubre: <Reed / equipo X>
 
 ## Visual reference
-- Figma: <URL del frame> · Documento fuente del texto: <ruta o nombre>
+- Reference: <URL, captura o documento visual aportado> · Documento fuente del texto: <ruta o nombre>
+- Design context: <tokens, medidas, estados y comportamiento verificados por el Tech Lead; assets disponibles en rutas locales>
+- Design ownership: el Tech Lead resuelve la referencia y verifica visualmente; el worker implementa con este contexto, sin consultas MCP de diseño salvo asignación explícita en el plan
 
 ## Steps
 1. <paso atómico> · files: src/auth/login.ts · symbols: refreshToken · expected: <resultado observable>
@@ -64,5 +66,5 @@ Los comandos de validación se ejecutan con un shell real (`cmd.exe` en Windows,
 - **Manifests y lockfiles** (`package.json`, `package-lock.json`, `pnpm-lock.yaml`, `Podfile.lock`, `build.gradle`, ...) fuera del scope salvo que la tarea sea de dependencias; si cambian sin que el plan lo pida, el postflight lo marca como violación.
 - **Criterios "Done when" verificables** por comando, no por opinión.
 - **Criterios fuera de este repo.** Si un criterio de aceptación depende de otro repo, un servicio o contenido de un tercero (por ejemplo boletines o textos que entrega otro equipo), no lo metas en "Done when" ni en los pasos: el worker no puede cumplirlo y generaría PLAN_CONTRADICTION. Va en "Criterios fuera de este repo", se avisa a Reed en el paso 2 y se lista como pendiente al cerrar. El runner no parsea esa sección; es para ti y para Reed. Si no hay ninguno, borra la sección.
-- **Referencia visual.** Para tareas de UI, "Visual reference" lleva el frame de Figma y el documento que da el texto. Habilita la verificación visual del paso 14b. Sin referencia, borra la sección.
+- **Referencia visual (opcional).** Si la tarea aporta una referencia externa (Figma, captura u otra fuente), "Visual reference" lleva esa fuente y el contexto de diseño ya verificado. Una URL sola no basta para implementar. El Tech Lead resuelve las consultas MCP y proporciona las rutas locales de assets; asigna consultas al worker solo si la tarea realmente lo exige. Habilita la verificación visual del paso 14b. Sin referencia, borra la sección y usa los patrones existentes del proyecto.
 - Para clases MIGRATION y ARCHITECTURAL_IMPL, agrega "Risks" con qué se rompe si un paso falla a medias.

@@ -54,6 +54,13 @@ export function buildRunRecord({ status, verdict, repairs = 0, postflight = null
   const started = new Date(status.startedAt);
   const ended = new Date(status.endedAt ?? now);
   const violations = postflight?.violations ?? [];
+  const usage = {};
+  if (meta.harness === 'devin' && status.usage?.source === 'devin-export') {
+    for (const key of ['promptTokens', 'cachedTokens', 'completionTokens']) {
+      const value = status.usage[key];
+      if (Number.isSafeInteger(value) && value >= 0) usage[key] = value;
+    }
+  }
   return {
     runId: status.runId,
     class: meta.klass,
@@ -67,6 +74,7 @@ export function buildRunRecord({ status, verdict, repairs = 0, postflight = null
     scopeFlags: violations.filter((v) => (v.code === 'SOFT_SCOPE_VIOLATION' || v.code === 'OUT_OF_SCOPE')).length,
     commentFlags: postflight?.comments?.length ?? 0,
     permissionRetry: (cls.status === 'PERMISSION_FAILURE' && final !== 'FAILED') || meta.permission === 'dangerous' || Boolean(meta.allowlistRetryOf),
+    ...(Object.keys(usage).length ? { usage: { source: 'devin-export', ...usage } } : {}),
     date: now.toISOString().slice(0, 10),
     at: now.toISOString(),
   };
@@ -285,6 +293,12 @@ export function formatHistory(history, { config = {}, klass, now = new Date() } 
   if (!klass && Object.keys(usage.week).length) {
     const fmt = (b) => Object.entries(b).map(([m, v]) => `${m} ${v.runs} run${v.runs === 1 ? '' : 's'} / ${v.minutes} min`).join(', ') || 'none';
     lines.push('', `Devin local accounting: today ${fmt(usage.today)} · last 7 days ${fmt(usage.week)}`);
+  }
+  const runs = history.runs.filter(r => !klass || r.class === klass);
+  if (runs.some(r => r.usage)) {
+    const rows = [['run', 'prompt', 'cached', 'completion']];
+    for (const r of runs) rows.push([r.runId, r.usage?.promptTokens ?? 'UNKNOWN', r.usage?.cachedTokens ?? 'UNKNOWN', r.usage?.completionTokens ?? 'UNKNOWN']);
+    lines.push('', 'Worker tokens by run (Devin export; architect tokens not measured):', ...pad(rows));
   }
   return lines.join('\n');
 }

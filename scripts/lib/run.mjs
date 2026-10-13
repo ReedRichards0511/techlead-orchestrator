@@ -236,12 +236,14 @@ export function getStatus({ repo, runId, rateRetries = 0, now = new Date() }) {
       diffEmpty = current === null ? null : current !== snapshot.porcelain ? false : current === '' ? true : null;
     }
   }
+  const parsed = parseOutput(harness, { exitCode: st.exitCode, stdout, stderr, runDir });
+  if (harness === 'devin' && parsed.usage) out.usage = parsed.usage;
   const classification = classifyRun({
     harness,
     state: st.state,
     exitCode: st.exitCode ?? null,
     stderr,
-    parsed: parseOutput(harness, { exitCode: st.exitCode, stdout, stderr, runDir }),
+    parsed,
     result,
     resultInvalid: invalid,
     diffEmpty,

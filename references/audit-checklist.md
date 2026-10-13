@@ -21,6 +21,7 @@ Qué verifica el runner solo, qué debes verificar tú y qué hacer ante una vio
 | STASH_CHANGED | grave | cambió la lista de stash | ídem |
 | DELETED_OUT_OF_PLAN | grave | borró archivos que el plan no preveía | ídem |
 | MANIFEST_CHANGED | violación | cambió un manifest o lockfile sin pedirlo el plan | Revierte el cambio vía repair o pregunta a Reed |
+| SNAPSHOT_INCOMPLETE | violación | faltan hashes de archivos que existían antes de la corrida | El runner no puede demostrar qué cambió. Audita contra respaldos fiables; no reconstruyas el estado anterior con el contenido actual ni declares un postflight limpio |
 | ORCHESTRATOR_REFERENCE | violación | una línea añadida menciona `.orchestrator/` (código, tests, fixtures o config; se excluyen `.gitignore` y similares) | Pide repair: el contenido debe vivir en una ruta versionada dentro del scope. Pasaría en local y fallaría en CI |
 | SOFT_SCOPE_VIOLATION | aviso | tocó archivos que el plan no lista en "In scope" (relacionados, p. ej. un `types.ts` junto a lo listado) | Decide en la auditoría: ¿necesario o scope creep? |
 | HARD_SCOPE_VIOLATION | grave | cambió `.git/config`, un hook de git, `~/.gitconfig`, `~/.npmrc` o `settings.json` de Claude | PARA. No sigas con la auditoría normal: muéstrale a Reed qué archivo cambió y por qué |
@@ -30,6 +31,8 @@ Qué verifica el runner solo, qué debes verificar tú y qué hacer ante una vio
 `ok` exige: ninguna grave o violación **y** ninguna regresión de validación. Un aviso no falla solo; se decide en la auditoría.
 
 La re-validación se compara con el baseline del preflight y separa: **regresiones** (pasaba y ahora falla), **preexistentes** (ya fallaba) y **fixed** (fallaba y ahora pasa). Solo las regresiones cuentan contra el worker.
+
+En un monorepo, las rutas del snapshot y del postflight son relativas a la raíz Git; el Scope del plan es relativo al workspace donde corre el worker. El runner convierte las rutas al comprobar el alcance y mantiene la vigilancia de cambios fuera del workspace.
 
 Los archivos nuevos escritos fuera del repo no se detectan: es un riesgo residual aceptado. Si el plan tocaba algo con rutas absolutas, revísalo a mano.
 

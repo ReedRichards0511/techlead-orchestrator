@@ -81,6 +81,28 @@ test('history record twice for the same run does not duplicate it', () => {
   assert.equal(h.aggregates['devin/swe-2/high/FEATURE'].repairRequired, 1);
 });
 
+test('status and history expose Devin token counts and keep private export data out of history', () => {
+  const state = newState();
+  const repo = repoDir();
+  const dir = fakeRun(repo, 'p1-usage');
+  writeFileSync(join(dir, 'devin-session.json'), JSON.stringify({
+    session_id: 'private-session', steps: [{ message: 'private prompt' }],
+    final_metrics: { total_prompt_tokens: 1000, total_completion_tokens: 20, total_cached_tokens: 900 },
+  }));
+  const usage = { source: 'devin-export', promptTokens: 1000, completionTokens: 20, cachedTokens: 900 };
+  const status = orchRun(state, ['status', 'p1-usage', '--repo', repo, '--json']);
+  assert.equal(status.status, 0, status.stderr);
+  assert.deepEqual(JSON.parse(status.stdout).usage, usage);
+  const recorded = orchRun(state, ['history', 'record', 'p1-usage', '--verdict', 'PASS', '--repo', repo, '--json']);
+  assert.equal(recorded.status, 0, recorded.stderr);
+  assert.deepEqual(JSON.parse(recorded.stdout).recorded.usage, usage);
+  assert.deepEqual(readHistory(state).runs[0].usage, usage);
+  assert.doesNotMatch(readFileSync(join(state, 'history.json'), 'utf8'), /private/);
+  const table = orchRun(state, ['history']);
+  assert.match(table.stdout, /Worker tokens/);
+  assert.match(table.stdout, /p1-usage\s+1000\s+900\s+20/);
+});
+
 test('history record reads scope and comment flags from postflight.json', () => {
   const state = newState();
   const repo = repoDir();

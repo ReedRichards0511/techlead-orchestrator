@@ -28,6 +28,10 @@ const POLICIES = {
     'with the section, the plan assumption, the reality, files, symbols, lines, evidence, impact, affected steps and the changes already made.',
   VALIDATION_POLICY:
     'Run the commands in the plan\'s Validation section. Distinguish failures that already existed (see BASELINE) from failures you introduced.',
+  DESIGN_CONTEXT_POLICY:
+    'If the plan supplies an external visual reference, use its resolved design context and local assets. Query that reference through MCP ' +
+    'only if the plan explicitly assigns that work to you; report PLAN_CONTRADICTION if required reference details are missing. ' +
+    'Without an external visual reference, follow repository patterns; no design service or MCP is required.',
   GIT_POLICY:
     'Never commit, push, merge, rebase, reset --hard, clean, delete branches or touch the stash. ' +
     'Do not touch changes that are not part of this task. Never write outside WORKSPACE.',

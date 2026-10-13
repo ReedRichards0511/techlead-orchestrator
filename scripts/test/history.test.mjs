@@ -76,6 +76,16 @@ test('buildRunRecord keeps only the allowed fields and no absolute paths', () =>
   assert.doesNotMatch(JSON.stringify(r), /Users|someone|plans/);
 });
 
+test('history keeps only valid worker counters and displays missing counters as UNKNOWN', () => {
+  const st = { ...status(), usage: { source: 'devin-export', promptTokens: 100, completionTokens: 0, cachedTokens: -1, account: 'private-account' } };
+  const r = buildRunRecord({ status: st, verdict: 'PASS', now: NOW });
+  assert.deepEqual(r.usage, { source: 'devin-export', promptTokens: 100, completionTokens: 0 });
+  assert.doesNotMatch(JSON.stringify(r), /private/);
+  const text = formatHistory(recordRun(emptyHistory(), r));
+  assert.match(text, /100\s+UNKNOWN\s+0/);
+  assert.equal(buildRunRecord({ status: { ...st, usage: { promptTokens: 100 } }, verdict: 'PASS' }).usage, undefined);
+});
+
 test('buildRunRecord counts scope and comment flags from the postflight', () => {
   const postflight = {
     violations: [

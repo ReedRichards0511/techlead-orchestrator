@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
+import { gitPorcelain } from '../lib/git.mjs';
 import {
   acquireLock,
   readLock,
@@ -110,6 +111,77 @@ test('takeSnapshot does not touch the working tree, index or stash list', () => 
   assert.equal(readFileSync(join(repo, 'a.txt'), 'utf8'), before.a);
   assert.deepEqual(s.untracked, ['untracked.txt']);
   assert.ok(s.dirtyHashes['a.txt']);
+});
+
+test('snapshots from a monorepo subdirectory hash and back up files using Git root paths', () => {
+  const prefix = 'Mobile project/expo-app/';
+  const root = makeRepo({ [`${prefix}a.txt`]: 'initial\n', [`${prefix}package.json`]: '{}\n', 'outside.txt': 'initial\n' });
+  const repo = join(root, prefix);
+  write(repo, 'a.txt', 'my edits\n');
+  write(repo, 'scratch.txt', 'my untracked work\n');
+  write(root, 'outside.txt', 'outside edits\n');
+  write(root, 'outside-new.txt', 'outside untracked work\n');
+  const before = git(root, 'status', '--porcelain');
+  const s = takeSnapshot({ repo, planId: 'p1' });
+  assert.ok(s.dirtyHashes[`${prefix}a.txt`]);
+  assert.ok(s.dirtyHashes['outside.txt']);
+  assert.ok(s.manifests[`${prefix}package.json`]);
+  assert.ok(s.guarded['repo:.git/config']);
+  assert.deepEqual(s.untrackedSkipped, []);
+  for (const path of [`${prefix}scratch.txt`, 'outside-new.txt']) {
+    assert.ok(s.untrackedSaved.includes(path));
+    assert.equal(readFileSync(join(repo, '.orchestrator', 'snapshots', 'p1', 'untracked', path), 'utf8'), readFileSync(join(root, path), 'utf8'));
+  }
+  assert.equal(git(root, 'status', '--porcelain'), before);
+  assert.deepEqual(postflightChecks({ repo, snapshot: s, planText: planText('a.txt'), config }).changedFiles, []);
+});
+
+test('Git status excludes runner state in a subdirectory with spaces even before preflight', () => {
+  const prefix = 'Mobile project/expo-app/';
+  const root = makeRepo({ [`${prefix}a.txt`]: 'initial\n' });
+  const repo = join(root, prefix);
+  write(repo, '.orchestrator/plans/p1.md', 'plan\n');
+  assert.equal(gitPorcelain(repo), '');
+  write(repo, 'a.txt', 'edited\n');
+  assert.equal(gitPorcelain(repo), ` M ${prefix}a.txt`);
+});
+
+test('postflight in a monorepo recognizes workspace scope and still detects outside edits', () => {
+  const prefix = 'Mobile project/expo-app/';
+  const root = makeRepo({ [`${prefix}src/a.js`]: 'const a = 1;\n', [`${prefix}package.json`]: '{}\n', 'outside.txt': 'initial\n' });
+  const repo = join(root, prefix);
+  const snapshot = takeSnapshot({ repo, planId: 'p1' });
+  write(repo, 'src/a.js', 'const a = 2;\n// new comment\n');
+  write(repo, 'src/new.js', 'const b = 1;\n');
+  write(repo, 'package.json', '{"changed":true}\n');
+  const allowed = postflightChecks({ repo, snapshot, planText: planText('src/, package.json'), config });
+  assert.equal(allowed.violations.some(v => ['SOFT_SCOPE_VIOLATION', 'MANIFEST_CHANGED'].includes(v.code)), false);
+  assert.deepEqual(allowed.comments.map(c => `${c.file}:${c.line}`), [`${prefix}src/a.js:2`]);
+  write(root, 'outside.txt', 'worker edit\n');
+  const outside = postflightChecks({ repo, snapshot, planText: planText('src/, package.json'), config });
+  assert.deepEqual(outside.violations.filter(v => v.code === 'SOFT_SCOPE_VIOLATION').map(v => v.path), ['outside.txt']);
+  unlinkSync(join(root, 'outside.txt'));
+  assert.ok(postflightChecks({ repo, snapshot, planText: planText('src/, package.json'), config }).violations.some(v => v.code === 'DELETED_OUT_OF_PLAN'));
+});
+
+test('postflight refuses to approve an old snapshot with missing hashes for existing files', () => {
+  const repo = makeRepo();
+  write(repo, 'a.txt', 'my edits\n');
+  const snapshot = takeSnapshot({ repo, planId: 'p1' });
+  snapshot.dirtyHashes['a.txt'] = null;
+  const r = postflightChecks({ repo, snapshot, planText: planText(), config });
+  assert.equal(r.ok, false);
+  assert.ok(r.violations.some(v => v.code === 'SNAPSHOT_INCOMPLETE'));
+});
+
+test('a file already deleted before the snapshot does not make it incomplete', () => {
+  const repo = makeRepo();
+  unlinkSync(join(repo, 'a.txt'));
+  const snapshot = takeSnapshot({ repo, planId: 'p1' });
+  assert.equal(snapshot.dirtyHashes['a.txt'], null);
+  const r = postflightChecks({ repo, snapshot, planText: planText(), config });
+  assert.equal(r.ok, true);
+  assert.deepEqual(r.changedFiles, []);
 });
 
 test('ensureExcluded adds .orchestrator/ once to .git/info/exclude', () => {
