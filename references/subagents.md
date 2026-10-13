@@ -10,6 +10,8 @@ Los dos escriben solo en las rutas que el hook permite (`.orchestrator/plans/*.m
 
 Opus no llama `get_design_context` ni `get_metadata`. Puede pedir hasta 3 `get_screenshot` para ver la pantalla; una imagen pesa poco frente a un volcado.
 
+El MCP de Figma tiene cuota de uso. Una extracción nodo por nodo (95 llamadas en una tarea real) la agotó y dejó al auditor sin capturas. Por eso el prompt limita las llamadas y reserva las capturas para Opus y el auditor.
+
 Prompt (completa los `<>`):
 
 ```text
@@ -19,7 +21,13 @@ Pantallas y estados pedidos: <lista>
 Repo (solo para nombrar destinos de assets): <ruta>
 Escribe UN archivo: <repo>/.orchestrator/plans/<id>-figma.md
 
-Usa las herramientas MCP de Figma disponibles (get_metadata para la estructura, get_design_context por nodo, get_variable_defs para los tokens). Copia los valores literalmente; no los traduzcas a componentes del repo ni redondees nada.
+El MCP de Figma tiene cuota: gástala lo mínimo.
+- get_design_context: UNA llamada por pantalla o estado pedido, sobre el frame completo; ya devuelve todo su árbol. No bajes nodo por nodo.
+- get_metadata: solo si la respuesta de un frame viene truncada; entonces pide get_design_context para sus secciones grandes, no para cada hijo.
+- get_variable_defs: una vez.
+- No uses get_screenshot: las capturas quedan para el Tech Lead y el auditor.
+- Tope: 2 llamadas por pantalla más 3 extra. Si no alcanza, anota lo que faltó en "Dudas".
+Copia los valores literalmente; no los traduzcas a componentes del repo ni redondees nada.
 Para cada pantalla y estado, por nodo relevante (de arriba abajo):
 - nombre y node id; tamaño; auto-layout (dirección, gap, padding, alineación); radio; borde; sombra
 - relleno y color de texto: nombre de la variable y su hex
@@ -50,7 +58,11 @@ Salida de orch go (postflight incluido):
 
 1. Lee ~/.claude/skills/orchestrator/references/audit-checklist.md, secciones 1 a 4, y aplícalas.
 2. Revisa git status y git diff frente al snapshot. Verifica cada paso del plan en el código y cada hallazgo del postflight, uno por uno.
-3. Solo si el plan tiene "## Visual reference": compara los entornos y tamaños que indica el plan con la referencia (get_screenshot de Figma, el navegador integrado contra el dev server). Si comparas texto, hazlo línea por línea.
+3. Solo si el plan tiene "## Visual reference": compara solo los estados y tamaños que pide el plan. Cada captura llena tu contexto, que se vuelve a leer en cada turno:
+   - Verifica primero con texto: get_page_text o read_page para textos, estados, presencia de elementos y comportamiento; javascript_tool para medidas o estilos puntuales.
+   - Capturas: una por estado pedido, a escala 0.5, y solo para lo que el texto no muestra (layout, ilustraciones, sombras). Agrupa las acciones de cada estado en un solo browser_batch.
+   - Referencia: get_screenshot de Figma, una por pantalla. Si Figma no responde (cuota), compara contra la spec visual.
+   - Si comparas texto contra un documento, hazlo línea por línea.
 4. Escribe .orchestrator/runs/<runId>/audit.md con el formato del checklist.
 5. Si el veredicto es REPAIR_REQUIRED, escribe .orchestrator/plans/<id>-repair<ciclo+1>.json con {"cycle":N,"points":[{"file","line","issue","expected"}],"commands":[...]}.
 
