@@ -20,7 +20,7 @@ function setup() {
 test('Opus cannot edit product code, tests or docs, but can write plans and audit records', () => {
   const { repo, act } = setup();
   for (const file_path of ['src/Card.tsx', '__test__/Card.test.tsx', 'docs/readme.md', '.orchestrator/runs/task-run/result.json', '.orchestrator/usage/task.json']) assert.equal(act('Write', { file_path }).hookSpecificOutput.permissionDecision, 'deny', file_path);
-  for (const file_path of ['.orchestrator/plans/task.md', '.orchestrator/plans/continuation.json', '.orchestrator/runs/task-run/audit.md']) assert.equal(act('Write', { file_path }), null);
+  for (const file_path of ['.orchestrator/plans/task.md', '.orchestrator/plans/continuation.json', '.orchestrator/runs/task-run/audit.md', '.orchestrator/project-context.md']) assert.equal(act('Write', { file_path }), null);
   assert.equal(act('Edit', { file_path: join(repo, 'src/Card.tsx') }).hookSpecificOutput.permissionDecision, 'deny');
 });
 

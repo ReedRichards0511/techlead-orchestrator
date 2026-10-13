@@ -73,6 +73,7 @@ Puntos bloqueantes: uno por línea, con archivo:línea
 Repair: <ruta del json o "—">
 Visual: <qué comparaste y qué difiere, o "no aplica">
 Pendientes para Reed: <lo que el run no cubre>
+Para project-context: <rutas, componentes y variantes, tokens, hooks o casos de uso que la tarea agregó o cambió; una línea cada uno con su ruta, o "—">
 ```
 
 Opus confía en ese veredicto, salvo una contradicción visible con la salida de `orch go` (por ejemplo, PASS con `POSTFLIGHT NOT OK`). En ese caso se lo devuelve al mismo auditor con `SendMessage`; no relee el diff él mismo.

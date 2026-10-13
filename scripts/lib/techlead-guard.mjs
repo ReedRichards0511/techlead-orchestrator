@@ -95,7 +95,7 @@ function artifactWrite(path, cwd, repo) {
   if (typeof path !== 'string') return false;
   const full = pathOf(path, cwd);
   const relativePath = relative(repo, full).split(sep).join('/');
-  if (!/^\.orchestrator\/(?:plans\/[^/]+\.(?:md|json)|runs\/[a-zA-Z0-9_-]+\/audit\.md)$/.test(relativePath)) return false;
+  if (!/^\.orchestrator\/(?:project-context\.md|plans\/[^/]+\.(?:md|json)|runs\/[a-zA-Z0-9_-]+\/audit\.md)$/.test(relativePath)) return false;
   let cursor = resolve(repo);
   for (const part of relativePath.split('/')) {
     cursor = join(cursor, part);
