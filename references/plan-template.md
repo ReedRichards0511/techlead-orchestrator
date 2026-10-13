@@ -52,6 +52,33 @@ Qué se hace y por qué, qué NO se hace y las alternativas descartadas.
 ## Risks
 ```
 
+## Plan ligero
+
+Solo para el modo ligero de `SKILL.md` (SMALL_FIX o BUG_SIMPLE, 3 archivos o menos, sin riesgo alto):
+
+```markdown
+# Plan <id>: <título>
+Class: <SMALL_FIX|BUG_SIMPLE> · Mode: light · Estimated files: <n>
+Worker chosen: <id> · Effort: <e> · User choice: <respuesta de Reed>
+
+## Context
+<requerimiento y criterio de aceptación, en 1 a 3 líneas>
+
+## Current state (verified)
+- `ruta` · símbolo: <lo que hay hoy>
+
+## Scope
+- In scope: <archivos>
+- Out of scope: todo lo demás
+
+## Steps
+1. <cambio> · files: <ruta> · expected: <resultado observable>
+
+## Validation
+- Commands: `<comando real>`
+- Done when: <criterio verificable>
+```
+
 ## Formato que parsea el runner
 
 El preflight, el lanzamiento y el postflight exigen dos secciones parseables y no vacías. Si faltan o el formato difiere, la corrida se rechaza:
