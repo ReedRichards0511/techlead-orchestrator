@@ -54,11 +54,11 @@ Qué se hace y por qué, qué NO se hace y las alternativas descartadas.
 
 ## Plan ligero
 
-Solo para el modo ligero de `SKILL.md` (SMALL_FIX o BUG_SIMPLE, 3 archivos o menos, sin riesgo alto):
+Solo para el modo ligero (`references/light-mode.md`: clases y umbrales en `orch architect --json → lightMode`, sin riesgo alto):
 
 ```markdown
 # Plan <id>: <título>
-Class: <SMALL_FIX|BUG_SIMPLE> · Mode: light · Estimated files: <n>
+Class: <SMALL_FIX|BUG_SIMPLE|TEST_GENERATION|MECHANICAL_CHANGE> · Mode: light · Estimated files: <n>
 Worker chosen: <id> · Effort: <e> · User choice: <respuesta de Reed>
 
 ## Context

@@ -1,6 +1,14 @@
 {
   "version": 1,
   "platformOverrides": { "paths": { "devin": null, "codex": null, "agy": null, "claude": null } },
+  "architect": { "model": "opus", "effort": "medium", "enforce": false },
+  "subagents": { "auditor": { "model": "inherit" }, "figmaReader": { "model": "haiku" } },
+  "lightMode": {
+    "enabled": true,
+    "classes": ["SMALL_FIX", "BUG_SIMPLE", "TEST_GENERATION", "MECHANICAL_CHANGE"],
+    "maxFiles": 5,
+    "maxChangedLines": 200
+  },
   "thresholds": { "healthy": 50, "moderate": 25, "low": 10 },
   "reserves": { "claude": 35, "codex": 20, "devin": 0, "antigravity": 10 },
   "quotaTtlSeconds": 600,

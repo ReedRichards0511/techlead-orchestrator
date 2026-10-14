@@ -1,12 +1,12 @@
 # Subagentes del Tech Lead
 
-Cada turno de Opus vuelve a leer todo su contexto. Los volcados de Figma y la lectura del diff de la auditoría inflaban ese contexto hasta 300-500K tokens, que luego se pagaban en cada turno siguiente. Ese trabajo va a subagentes de Claude Code (herramienta `Agent`): empiezan con contexto limpio, comparten los MCP de la sesión y devuelven solo un resumen corto. `orch usage report` los cuenta en una fila propia, `<modelo> (subagentes)`.
+Cada turno del Tech Lead vuelve a leer todo su contexto. Los volcados de Figma y la lectura del diff de la auditoría inflaban ese contexto hasta 300-500K tokens, que luego se pagaban en cada turno siguiente. Ese trabajo va a subagentes de Claude Code (herramienta `Agent`): empiezan con contexto limpio, comparten los MCP de la sesión y devuelven solo un resumen corto. `orch usage report` los cuenta en una fila propia, `<modelo> (subagentes)`.
 
 Los dos escriben solo en las rutas que el hook permite (`.orchestrator/plans/*.md|json` y `runs/<runId>/audit.md`). Ninguno edita el producto ni lanza workers.
 
 ## 1. Lector de Figma: Haiku 5.5
 
-`Agent` con `subagent_type: "general-purpose"` y `model: "haiku"`. Extraer valores es mecánico, y Haiku 5.5 cuesta unas 40 veces menos que Opus. Sonnet 5.5 no compensa aquí: lee caché al mismo precio que Opus, y casi todo el gasto de este trabajo es lectura de caché. Usa `model: "sonnet"` solo si una extracción de Haiku vuelve incompleta.
+`Agent` con `subagent_type: "general-purpose"` y `model: "haiku"`. Extraer valores es mecánico, y Haiku 5.5 cuesta unas 40 veces menos que Opus. El lector es siempre Haiku 5.5 (no es configurable): si una extracción vuelve incompleta, anota las dudas y resuélvelas con una consulta puntual por MCP, sin escalar de modelo.
 
 Opus no llama `get_design_context` ni `get_metadata`. Puede pedir hasta 3 `get_screenshot` para ver la pantalla; una imagen pesa poco frente a un volcado.
 
@@ -42,9 +42,9 @@ Responde en 10 líneas como máximo: la ruta del archivo, las pantallas cubierta
 
 Opus lee `<id>-figma.md`, decide el mapeo a los tokens y componentes del repo y lo lleva al plan (`## Visual reference`). Si quedan dudas que bloquean, pregunta una consulta puntual por MCP (un nodo) o pregunta a Reed. No repitas la extracción completa.
 
-## 2. Auditor: Opus (heredado)
+## 2. Auditor: modelo configurable (por defecto hereda el del Tech Lead)
 
-`Agent` con `subagent_type: "general-purpose"`, sin `model` (hereda Opus: juzgar el diff requiere el mismo criterio que el plan). Lánzalo después de que `orch go` notifique un SUCCESS o un VALIDATION_FAILURE, o en la vía 3 de PERMISSION_FAILURE. Para auditar un repair, **continúa el mismo auditor con `SendMessage`** pasándole la nueva salida de `orch go`: ya conoce el diff y no vuelve a leerlo entero. `SendMessage` puede ser una herramienta diferida: cárgala con ToolSearch. Si no existe, lanza un auditor nuevo con el mismo prompt.
+`Agent` con `subagent_type: "general-purpose"`. El `model` sale de `orch architect --json → auditor.model`: con `inherit` (por defecto) omite el parámetro y hereda al Tech Lead, porque juzgar el diff requiere el mismo criterio que el plan; con `sonnet`, `haiku` o un id completo pásalo tal cual. Se cambia con `orch architect set --auditor <inherit|sonnet|haiku|opus>`. Lánzalo después de que `orch go` notifique un SUCCESS o un VALIDATION_FAILURE, o en la vía 3 de PERMISSION_FAILURE. Para auditar un repair, **continúa el mismo auditor con `SendMessage`** pasándole la nueva salida de `orch go`: ya conoce el diff y no vuelve a leerlo entero. `SendMessage` puede ser una herramienta diferida: cárgala con ToolSearch. Si no existe, lanza un auditor nuevo con el mismo prompt.
 
 Prompt (completa los `<>`):
 

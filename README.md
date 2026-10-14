@@ -1,6 +1,6 @@
 # techlead-orchestrator
 
-Skill global de Claude Code (`/orchestrator`). **Opus 5.5 actúa como Tech Lead**: entiende el requerimiento, escribe el plan, recomienda worker/modelo/effort, supervisa y audita el diff. **El usuario elige antes de ejecutar**: una recomendación y hasta tres alternativas de los modelos autorizados. La implementación la hacen workers de otros CLIs (Devin, Codex y Antigravity), sin API keys de pago, usando las suscripciones ya iniciadas en cada CLI.
+Skill global de Claude Code (`/orchestrator`). **Opus 5.5 (medium por defecto, configurable) actúa como Tech Lead**: entiende el requerimiento, escribe el plan, recomienda worker/modelo/effort, supervisa y audita el diff. **El usuario elige antes de ejecutar**: una recomendación y hasta tres alternativas de los modelos autorizados. La implementación la hacen workers de otros CLIs (Devin, Codex y Antigravity), sin API keys de pago, usando las suscripciones ya iniciadas en cada CLI.
 
 El runner (`scripts/orch.mjs`) es un único programa Node sin dependencias. No usa Python ni LLM para decidir nada: routing, cuotas, locks, snapshots, postflight y clasificación de errores son deterministas.
 
@@ -57,6 +57,7 @@ La skill solo la invoca el usuario (`disable-model-invocation: true`). Abre la s
 /orchestrator doctor
 /orchestrator quota
 /orchestrator route --class SMALL_FIX
+/orchestrator architect
 /orchestrator implement <HU / bug / requerimiento>
 /orchestrator history
 /orchestrator bootstrap status
@@ -68,6 +69,21 @@ La skill solo la invoca el usuario (`disable-model-invocation: true`). Abre la s
 El lanzamiento exige la combinación elegida con `--model <id> --effort <e>`, recibe el extracto de reglas con `--project-rules <archivo>` y carga automáticamente el baseline del preflight. Si esa combinación deja de estar disponible, falla sin sustituirla. El plan debe incluir `## Scope` con `- In scope:` y `## Validation` con `- Commands:`, ambos no vacíos; el runner rechaza planes que no pueda comprobar. El JSON de `route` ahora usa `recommended`, `options` y `question`, no `selected`/`fallback`.
 
 Antes de elegir worker, `orch check-plan --plan <ruta>` comprueba estructura, conflictos reconocibles y operaciones de archivos. `## File operations` declara movimientos/eliminaciones concretos: el preflight respalda sus fuentes y el worker ejecuta helpers exactos, temporalmente autorizados en Devin smart. Opus tiene hooks que bloquean edición directa y shell mutante sobre el producto mientras su tarea esté abierta; solo escribe planes, packets y auditorías. `orch go` hace preflight, lanzamiento, espera y postflight en una sola llamada en Bash background, sin polling del modelo; `orch close` libera el lock, registra el historial e imprime los tokens. La extracción de Figma (Haiku) y la auditoría (Opus con contexto limpio) van a subagentes (`references/subagents.md`). Consulta `references/execution-policy.md`.
+
+## Tech Lead, auditor y modo ligero
+
+Por defecto el Tech Lead es **Opus 5.5 con effort medium**, el lector de Figma es siempre **Haiku 5.5** y el auditor hereda el modelo del Tech Lead. Todo vive en `~/.claude/orchestrator/config.json` (claves `architect`, `subagents` y `lightMode`, con sus valores en `config.defaults.json`) y se consulta o cambia con:
+
+```bash
+node scripts/orch.mjs architect                                   # config efectiva
+node scripts/orch.mjs architect set --model sonnet --effort high  # Tech Lead
+node scripts/orch.mjs architect set --auditor sonnet              # auditor (o inherit)
+node scripts/orch.mjs architect set --enforce true                # detener si la sesión no coincide
+```
+
+Una skill no puede cambiar el modelo de la sesión, así que `/orchestrator implement` compara el modelo y effort reales con `architect` y, si difieren, te muestra los comandos `/model` y `/effort` que faltan (con `enforce` se detiene hasta que los apliques).
+
+El **modo ligero** evita subagentes en tareas pequeñas: aplica a SMALL_FIX, BUG_SIMPLE, TEST_GENERATION y MECHANICAL_CHANGE de hasta 5 archivos y 200 líneas, sin operaciones de archivos, manifests ni riesgo alto. Los umbrales están en `lightMode`; el detalle, en `references/light-mode.md`.
 
 ## Reglas que impone el runner
 

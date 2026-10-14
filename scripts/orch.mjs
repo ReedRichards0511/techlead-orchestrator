@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { stateDir } from './lib/platform.mjs';
 
 const COMMANDS = {
+  architect: 'Show or set the Tech Lead model/effort, auditor model and light mode',
   doctor: 'Check OS, CLIs, auth, catalog and quota interfaces',
   models: 'Show or refresh the model catalog (refresh | enable | disable)',
   quota: 'Show quota dashboard (refresh | set)',
